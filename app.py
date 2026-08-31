@@ -9,7 +9,7 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import mm
 
 # Page Configuration
-st.set_page_config(page_title="Billing App", layout="wide", page_icon="💎")
+st.set_page_config(page_title="SOVAA JEWELLERS - Billing App", layout="wide", page_icon="💎")
 
 # Database & PDF Folder Setup
 DB_FILE = "Sales_Database.xlsx"
@@ -42,13 +42,12 @@ def save_to_database(row_dict):
     df.to_excel(DB_FILE, index=False)
 
 def generate_a5_pdf(inv_data, items, pdf_path):
-    # Exact A5 size: 148mm x 210mm
     doc = SimpleDocTemplate(
         pdf_path,
         pagesize=A5,
         leftMargin=7*mm,
         rightMargin=7*mm,
-        topMargin=8*mm,
+        topMargin=30*mm,
         bottomMargin=7*mm
     )
     story = []
@@ -58,8 +57,8 @@ def generate_a5_pdf(inv_data, items, pdf_path):
         'InvTitle',
         parent=styles['Normal'],
         fontName='Helvetica-Bold',
-        fontSize=10,
-        leading=12,
+        fontSize=9.5,
+        leading=11,
         alignment=1
     )
     cell_style = ParagraphStyle(
@@ -86,11 +85,9 @@ def generate_a5_pdf(inv_data, items, pdf_path):
         alignment=1
     )
 
-    # 🟢 TAX INVOICE Title Header
     story.append(Paragraph("<u>TAX INVOICE</u>", inv_title_style))
-    story.append(Spacer(1, 2.5*mm))
+    story.append(Spacer(1, 2*mm))
 
-    # Meta Info Table
     meta_data = [
         [
             Paragraph(f"<b>Date:</b> {inv_data['date']}", cell_style),
@@ -124,7 +121,6 @@ def generate_a5_pdf(inv_data, items, pdf_path):
     story.append(meta_table)
     story.append(Spacer(1, 2*mm))
 
-    # Items Header
     item_rows = [[
         Paragraph("Sr", cell_header),
         Paragraph("Particular / Description", cell_header),
@@ -137,7 +133,6 @@ def generate_a5_pdf(inv_data, items, pdf_path):
         Paragraph("Total Amount", cell_header)
     ]]
 
-    # Items Data
     for idx, itm in enumerate(items, 1):
         item_rows.append([
             Paragraph(str(idx), cell_style),
@@ -166,7 +161,6 @@ def generate_a5_pdf(inv_data, items, pdf_path):
     story.append(item_table)
     story.append(Spacer(1, 2*mm))
 
-    # Summary & Terms Table
     terms_text = Paragraph(
         "<b>Terms & Conditions:</b><br/>"
         "1. We are not responsible for any breakage/damage.<br/>"
@@ -194,11 +188,13 @@ def generate_a5_pdf(inv_data, items, pdf_path):
         ('BOTTOMPADDING', (0,0), (-1,-1), 1.5),
     ]))
     story.append(summary_table)
-    story.append(Spacer(1, 3*mm))
+    story.append(Spacer(1, 2.5*mm))
 
-    # Signatory Section
     sig_data = [
-        [Paragraph("", cell_style), Paragraph("<b>Authorised Signatory</b><br/><br/><br/>", ParagraphStyle('Sig', parent=styles['Normal'], alignment=1, fontSize=7, leading=9))]
+        [
+            Paragraph("", cell_style), 
+            Paragraph("<b>For SOVAA JEWELLERS</b><br/><br/><br/>(Authorised Signatory)", ParagraphStyle('Sig', parent=styles['Normal'], alignment=1, fontSize=7, leading=9))
+        ]
     ]
     sig_table = Table(sig_data, colWidths=[80*mm, 54*mm])
     story.append(sig_table)
@@ -206,7 +202,7 @@ def generate_a5_pdf(inv_data, items, pdf_path):
     doc.build(story)
 
 # --- STREAMLIT UI ---
-st.title("💎 TAX INVOICE - Billing System")
+st.title("💎 SOVAA JEWELLERS - Billing System")
 
 col1, col2 = st.columns([1.5, 1.5])
 with col1:
@@ -224,33 +220,37 @@ st.subheader("🛒 Item Details")
 if "items_list" not in st.session_state:
     st.session_state.items_list = []
 
-with st.container():
+# Form with blank placeholders (value=None) and clear on submit
+with st.form("item_entry_form", clear_on_submit=True):
     ic1, ic2, ic3, ic4, ic5, ic6 = st.columns([2.5, 1.2, 1.2, 1.5, 1.2, 1])
     with ic1:
-        item_desc = st.text_input("Item Description", placeholder="e.g. SILVER CHAIN", key="desc_in")
+        item_desc = st.text_input("Item Description", placeholder="e.g. SILVER CHAIN")
     with ic2:
-        gross_wt = st.number_input("Gross Wt (g)", min_value=0.0, step=0.01, format="%.2f", key="gwt_in")
+        gross_wt = st.number_input("Gross Wt (g)", min_value=0.0, step=0.01, format="%.2f", value=None, placeholder="0.00")
     with ic3:
-        net_wt = st.number_input("Net Wt (g)", min_value=0.0, step=0.01, format="%.2f", key="nwt_in")
+        net_wt = st.number_input("Net Wt (g)", min_value=0.0, step=0.01, format="%.2f", value=None, placeholder="0.00")
     with ic4:
-        rate_10g = st.number_input("Rate (Per 10g)", min_value=0.0, step=10.0, format="%.2f", key="rate_in")
+        rate_10g = st.number_input("Rate (Per 10g)", min_value=0.0, step=10.0, format="%.2f", value=None, placeholder="Rate")
     with ic5:
-        making_pct = st.number_input("Making %", min_value=0.0, step=1.0, value=12.0, key="making_in")
+        making_pct = st.number_input("Making %", min_value=0.0, step=1.0, value=None, placeholder="12%")
     with ic6:
-        purity = st.selectbox("Purity", ["SILVER", "22K (916)", "18K (750)", "24K (999)"], key="purity_in")
+        purity = st.selectbox("Purity", ["SILVER", "22K (916)", "18K (750)", "24K (999)"])
 
-    if st.button("➕ Add Item"):
-        if item_desc and net_wt > 0 and rate_10g > 0:
+    submitted = st.form_submit_button("➕ Add Item", use_container_width=True)
+    if submitted:
+        if item_desc and net_wt is not None and net_wt > 0 and rate_10g is not None and rate_10g > 0:
+            m_pct = making_pct if making_pct is not None else 0.0
+            g_wt = gross_wt if (gross_wt is not None and gross_wt > 0) else net_wt
             metal_cost = (net_wt * rate_10g) / 10.0
-            total_item_amt = metal_cost * (1 + (making_pct / 100.0))
+            total_item_amt = metal_cost * (1 + (m_pct / 100.0))
             st.session_state.items_list.append({
                 "desc": item_desc.upper(),
-                "gross_wt": gross_wt or net_wt,
+                "gross_wt": g_wt,
                 "net_wt": net_wt,
                 "hsn": "7113",
                 "purity": purity,
                 "rate": rate_10g,
-                "making_pct": making_pct,
+                "making_pct": m_pct,
                 "total": round(total_item_amt, 2)
             })
             st.rerun()
