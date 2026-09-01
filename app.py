@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 import os
+import math
 from reportlab.lib.pagesizes import A5
 from reportlab.lib import colors
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
@@ -13,6 +14,34 @@ st.set_page_config(page_title="SOVAA JEWELLERS - Billing & Estimate", layout="wi
 
 PDF_DIR = "Invoices_PDF"
 os.makedirs(PDF_DIR, exist_ok=True)
+
+# Pre-defined items list with all added items
+COMMON_ITEMS = [
+    "-- Select Common Item --",
+    "GOLD LOCKET",
+    "SILVER LOCKET",
+    "GOLD NATHIYA",
+    "SILVER BABY BALA",
+    "SILVER BABY PAYAL",
+    "SILVER KI RING",
+    "SILVER BICHHIYA",
+    "GOLD CHAIN",
+    "GOLD RING",
+    "GOLD EARRING / JHUMKA",
+    "GOLD NECKLACE",
+    "GOLD BRACELET",
+    "GOLD BANGLE / BALA",
+    "GOLD NOSE PIN",
+    "GOLD PENDANT",
+    "GOLD COIN",
+    "SILVER PAYAL / PAJEB",
+    "SILVER CHAIN",
+    "SILVER BRACELET",
+    "SILVER COIN",
+    "SILVER UTENSIL / BARTAN",
+    "SILVER MURTI / IDOL",
+    "➕ Custom / Other Item"
+]
 
 def get_next_number(doc_type):
     db_file = "Sales_Database.xlsx" if doc_type == "Tax Invoice (GST)" else "Estimate_Database.xlsx"
@@ -64,13 +93,11 @@ def generate_a5_pdf(doc_type, meta_info, items, pdf_path):
     cell_bold = ParagraphStyle('CellBold', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=7, leading=8.5)
     cell_header = ParagraphStyle('CellHeader', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=7, leading=8.5, textColor=colors.whitesmoke, alignment=1)
 
-    # Document Header Title
     is_gst = (doc_type == "Tax Invoice (GST)")
-    title_text = "<u>TAX INVOICE</u>" if is_gst else "<u>ESTIMATE / QUOTATION</u>"
+    title_text = "<u>TAX INVOICE</u>" if is_gst else "<u>ESTIMATE</u>"
     story.append(Paragraph(title_text, title_style))
     story.append(Spacer(1, 2*mm))
 
-    # Meta Table Info
     if is_gst:
         meta_data = [
             [Paragraph(f"<b>Date:</b> {meta_info['date']}", cell_style), Paragraph("<b>GSTIN:</b> 20AUJPD1127G1ZE", cell_style)],
@@ -98,7 +125,6 @@ def generate_a5_pdf(doc_type, meta_info, items, pdf_path):
     story.append(meta_table)
     story.append(Spacer(1, 2*mm))
 
-    # Items Table Header & Column Widths
     if is_gst:
         item_rows = [[
             Paragraph("Sr", cell_header), Paragraph("Particular / Description", cell_header),
@@ -109,7 +135,6 @@ def generate_a5_pdf(doc_type, meta_info, items, pdf_path):
         ]]
         col_widths = [6*mm, 33*mm, 12*mm, 12*mm, 10*mm, 13*mm, 19*mm, 11*mm, 18*mm]
     else:
-        # Estimate: HSN column excluded, other columns expanded
         item_rows = [[
             Paragraph("Sr", cell_header), Paragraph("Particular / Description", cell_header),
             Paragraph("Gross(g)", cell_header), Paragraph("Net(g)", cell_header),
@@ -118,7 +143,6 @@ def generate_a5_pdf(doc_type, meta_info, items, pdf_path):
         ]]
         col_widths = [7*mm, 38*mm, 14*mm, 14*mm, 16*mm, 21*mm, 12*mm, 20*mm]
 
-    # Items Data
     for idx, itm in enumerate(items, 1):
         if is_gst:
             item_rows.append([
@@ -151,7 +175,6 @@ def generate_a5_pdf(doc_type, meta_info, items, pdf_path):
     story.append(item_table)
     story.append(Spacer(1, 2*mm))
 
-    # Summary & Terms Table
     terms_text = Paragraph(
         "<b>Terms & Conditions:</b><br/>"
         "1. Estimation only. Rates subject to daily market change.<br/>"
@@ -207,8 +230,7 @@ def generate_a5_pdf(doc_type, meta_info, items, pdf_path):
 # --- STREAMLIT UI ---
 st.title("💎 SOVAA JEWELLERS - System")
 
-# Mode Switch
-mode = st.radio("Select Document Type", ["Tax Invoice (GST)", "Estimate / Quotation (Without GST)"], horizontal=True)
+mode = st.radio("Select Document Type", ["Tax Invoice (GST)", "Estimate (Without GST)"], horizontal=True)
 
 col1, col2 = st.columns([1.5, 1.5])
 with col1:
@@ -229,10 +251,26 @@ st.subheader("🛒 Item Details")
 if "items_list" not in st.session_state:
     st.session_state.items_list = []
 
+# Quick Select Item Dropdown outside form
+selected_preset = st.selectbox("⚡ Quick Select Item (Optional)", COMMON_ITEMS)
+
+# Auto-detect default purity based on selection
+purity_options = ["22K (916)", "SILVER", "18K (750)", "24K (999)"]
+default_purity_idx = 0
+if "SILVER" in selected_preset:
+    default_purity_idx = 1
+elif "GOLD" in selected_preset:
+    default_purity_idx = 0
+
 with st.form("item_entry_form", clear_on_submit=True):
     ic1, ic2, ic3, ic4, ic5, ic6 = st.columns([2.5, 1.2, 1.2, 1.5, 1.2, 1])
+    
+    default_text = ""
+    if selected_preset not in ["-- Select Common Item --", "➕ Custom / Other Item"]:
+        default_text = selected_preset
+
     with ic1:
-        item_desc = st.text_input("Item Description", placeholder="e.g. SILVER CHAIN")
+        item_desc = st.text_input("Item Description", value=default_text, placeholder="e.g. GOLD LOCKET")
     with ic2:
         gross_wt = st.number_input("Gross Wt (g)", min_value=0.0, step=0.01, format="%.2f", value=None, placeholder="0.00")
     with ic3:
@@ -242,7 +280,7 @@ with st.form("item_entry_form", clear_on_submit=True):
     with ic5:
         making_pct = st.number_input("Making %", min_value=0.0, step=1.0, value=None, placeholder="12%")
     with ic6:
-        purity = st.selectbox("Purity", ["SILVER", "22K (916)", "18K (750)", "24K (999)"])
+        purity = st.selectbox("Purity", purity_options, index=default_purity_idx)
 
     submitted = st.form_submit_button("➕ Add Item", use_container_width=True)
     if submitted:
@@ -286,7 +324,7 @@ if st.session_state.items_list:
         sgst = 0.0
         gross_total = subtotal
 
-    net_payable = round(gross_total)
+    net_payable = int(math.floor(gross_total / 10.0) * 10)
     round_off = round(net_payable - gross_total, 2)
 
     st.markdown("---")
@@ -300,7 +338,7 @@ if st.session_state.items_list:
         else:
             st.markdown(f"**Total Item Value:** Rs. {subtotal:,.2f}")
         
-        st.markdown(f"**Round Off:** Rs. {round_off:+.2f}")
+        st.markdown(f"**Round Off:** Rs. {round_off:,.2f}")
         st.subheader(f"💰 Net Payable: Rs. {net_payable:,.2f}")
 
     btn_text = f"💾 Generate & Save {mode}"
