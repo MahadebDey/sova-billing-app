@@ -15,7 +15,6 @@ st.set_page_config(page_title="SOVAA JEWELLERS - Billing & Estimate", layout="wi
 PDF_DIR = "Invoices_PDF"
 os.makedirs(PDF_DIR, exist_ok=True)
 
-# Pre-defined items list with all added items
 COMMON_ITEMS = [
     "-- Select Common Item --",
     "GOLD LOCKET",
@@ -149,7 +148,7 @@ def generate_a5_pdf(doc_type, meta_info, items, pdf_path):
                 Paragraph(str(idx), cell_style), Paragraph(str(itm['desc']), cell_style),
                 Paragraph(f"{itm['gross_wt']:.2f}", cell_style), Paragraph(f"{itm['net_wt']:.2f}", cell_style),
                 Paragraph(str(itm['hsn']), cell_style), Paragraph(str(itm['purity']), cell_style),
-                Paragraph(f"Rs. {itm['rate']:,.2f}", cell_style), Paragraph(f"{itm['making_pct']}%", cell_style),
+                Paragraph(f"Rs. {itm['rate']:,.2f}", cell_style), Paragraph(str(itm['making_display']), cell_style),
                 Paragraph(f"Rs. {itm['total']:,.2f}", cell_style)
             ])
         else:
@@ -157,7 +156,7 @@ def generate_a5_pdf(doc_type, meta_info, items, pdf_path):
                 Paragraph(str(idx), cell_style), Paragraph(str(itm['desc']), cell_style),
                 Paragraph(f"{itm['gross_wt']:.2f}", cell_style), Paragraph(f"{itm['net_wt']:.2f}", cell_style),
                 Paragraph(str(itm['purity']), cell_style), Paragraph(f"Rs. {itm['rate']:,.2f}", cell_style),
-                Paragraph(f"{itm['making_pct']}%", cell_style), Paragraph(f"Rs. {itm['total']:,.2f}", cell_style)
+                Paragraph(str(itm['making_display']), cell_style), Paragraph(f"Rs. {itm['total']:,.2f}", cell_style)
             ])
 
     for _ in range(max(0, 4 - len(items))):
@@ -251,10 +250,8 @@ st.subheader("🛒 Item Details")
 if "items_list" not in st.session_state:
     st.session_state.items_list = []
 
-# Quick Select Item Dropdown outside form
 selected_preset = st.selectbox("⚡ Quick Select Item (Optional)", COMMON_ITEMS)
 
-# Auto-detect default purity based on selection
 purity_options = ["22K (916)", "SILVER", "18K (750)", "24K (999)"]
 default_purity_idx = 0
 if "SILVER" in selected_preset:
@@ -263,7 +260,7 @@ elif "GOLD" in selected_preset:
     default_purity_idx = 0
 
 with st.form("item_entry_form", clear_on_submit=True):
-    ic1, ic2, ic3, ic4, ic5, ic6 = st.columns([2.5, 1.2, 1.2, 1.5, 1.2, 1])
+    ic1, ic2, ic3, ic4, ic5, ic6, ic7 = st.columns([2.2, 1.1, 1.1, 1.3, 1.1, 0.8, 1.1])
     
     default_text = ""
     if selected_preset not in ["-- Select Common Item --", "➕ Custom / Other Item"]:
@@ -278,17 +275,27 @@ with st.form("item_entry_form", clear_on_submit=True):
     with ic4:
         rate_10g = st.number_input("Rate (Per 10g)", min_value=0.0, step=10.0, format="%.2f", value=None, placeholder="Rate")
     with ic5:
-        making_pct = st.number_input("Making %", min_value=0.0, step=1.0, value=None, placeholder="12%")
+        making_val = st.number_input("Making Charge", min_value=0.0, step=1.0, value=None, placeholder="Making")
     with ic6:
+        making_type = st.selectbox("Unit", ["%", "₹"])
+    with ic7:
         purity = st.selectbox("Purity", purity_options, index=default_purity_idx)
 
     submitted = st.form_submit_button("➕ Add Item", use_container_width=True)
     if submitted:
         if item_desc and net_wt is not None and net_wt > 0 and rate_10g is not None and rate_10g > 0:
-            m_pct = making_pct if making_pct is not None else 0.0
+            val = making_val if making_val is not None else 0.0
             g_wt = gross_wt if (gross_wt is not None and gross_wt > 0) else net_wt
             metal_cost = (net_wt * rate_10g) / 10.0
-            total_item_amt = metal_cost * (1 + (m_pct / 100.0))
+            
+            if making_type == "%":
+                making_amt = metal_cost * (val / 100.0)
+                display_str = f"{val}%"
+            else:
+                making_amt = val
+                display_str = f"Rs. {val:,.0f}"
+
+            total_item_amt = metal_cost + making_amt
             st.session_state.items_list.append({
                 "desc": item_desc.upper(),
                 "gross_wt": g_wt,
@@ -296,7 +303,7 @@ with st.form("item_entry_form", clear_on_submit=True):
                 "hsn": "7113",
                 "purity": purity,
                 "rate": rate_10g,
-                "making_pct": m_pct,
+                "making_display": display_str,
                 "total": round(total_item_amt, 2)
             })
             st.rerun()
@@ -305,7 +312,7 @@ with st.form("item_entry_form", clear_on_submit=True):
 
 if st.session_state.items_list:
     df_items = pd.DataFrame(st.session_state.items_list)
-    display_cols = ["desc", "gross_wt", "net_wt", "purity", "rate", "making_pct", "total"]
+    display_cols = ["desc", "gross_wt", "net_wt", "purity", "rate", "making_display", "total"]
     if mode == "Tax Invoice (GST)":
         display_cols.insert(3, "hsn")
     st.table(df_items[display_cols])
