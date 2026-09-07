@@ -73,7 +73,6 @@ def save_to_database(row_dict, doc_type):
     df.to_excel(db_file, index=False)
 
 def generate_a5_pdf(doc_type, meta_info, items, pdf_path):
-    # Top Margin set to 1.7 Inch for letterhead
     doc = SimpleDocTemplate(
         pdf_path,
         pagesize=A5,
@@ -98,19 +97,21 @@ def generate_a5_pdf(doc_type, meta_info, items, pdf_path):
     story.append(Paragraph(title_text, title_style))
     story.append(Spacer(1, 1.5*mm))
 
+    cust_mob_display = meta_info['customer_mob'] if meta_info['customer_mob'] else "NA"
+
     if is_gst:
         meta_data = [
             [Paragraph(f"<b>Date:</b> {meta_info['date']}", cell_style), Paragraph("<b>GSTIN:</b> 20AUJPD1127G1ZE", cell_style)],
             [Paragraph(f"<b>Invoice No:</b> {meta_info['doc_no']}", cell_style), Paragraph("<b>Mobile No:</b> 7717740697", cell_style)],
             [Paragraph(f"<b>Customer Name:</b> {meta_info['customer_name']}", cell_style), Paragraph("<b>GST Type:</b> CGST + SGST (1.5% Each)", cell_style)],
-            [Paragraph(f"<b>Customer Mob:</b> {meta_info['customer_mob']}", cell_style), Paragraph("<b>State & Code:</b> 20 - JHARKHAND", cell_style)],
+            [Paragraph(f"<b>Customer Mob:</b> {cust_mob_display}", cell_style), Paragraph("<b>State & Code:</b> 20 - JHARKHAND", cell_style)],
             [Paragraph(f"<b>Address:</b> {meta_info['customer_address']}", cell_style), Paragraph(f"<b>Party GSTIN:</b> {meta_info['customer_gstin'] or 'NA'}", cell_style)]
         ]
     else:
         meta_data = [
             [Paragraph(f"<b>Date:</b> {meta_info['date']}", cell_style), Paragraph("<b>Mobile No:</b> 7717740697", cell_style)],
             [Paragraph(f"<b>Estimate No:</b> {meta_info['doc_no']}", cell_style), Paragraph("<b>State:</b> JHARKHAND", cell_style)],
-            [Paragraph(f"<b>Customer Name:</b> {meta_info['customer_name']}", cell_style), Paragraph(f"<b>Customer Mob:</b> {meta_info['customer_mob']}", cell_style)],
+            [Paragraph(f"<b>Customer Name:</b> {meta_info['customer_name']}", cell_style), Paragraph(f"<b>Customer Mob:</b> {cust_mob_display}", cell_style)],
             [Paragraph(f"<b>Address:</b> {meta_info['customer_address']}", cell_style), Paragraph("", cell_style)]
         ]
 
@@ -125,6 +126,7 @@ def generate_a5_pdf(doc_type, meta_info, items, pdf_path):
     story.append(meta_table)
     story.append(Spacer(1, 1.5*mm))
 
+    # Perfectly calibrated widths totaling 134mm (No text clipping)
     if is_gst:
         item_rows = [[
             Paragraph("Sr", cell_header), Paragraph("Description", cell_header),
@@ -133,7 +135,7 @@ def generate_a5_pdf(doc_type, meta_info, items, pdf_path):
             Paragraph("Rate/10g", cell_header), Paragraph("Making", cell_header),
             Paragraph("Total", cell_header)
         ]]
-        col_widths = [6*mm, 31*mm, 13*mm, 13*mm, 10*mm, 14*mm, 19*mm, 12*mm, 16*mm]
+        col_widths = [6*mm, 29*mm, 14*mm, 14*mm, 10*mm, 14*mm, 18*mm, 14*mm, 15*mm]
     else:
         item_rows = [[
             Paragraph("Sr", cell_header), Paragraph("Description", cell_header),
@@ -141,7 +143,7 @@ def generate_a5_pdf(doc_type, meta_info, items, pdf_path):
             Paragraph("Purity", cell_header), Paragraph("Rate/10g", cell_header),
             Paragraph("Making", cell_header), Paragraph("Total Amount", cell_header)
         ]]
-        col_widths = [6*mm, 36*mm, 14*mm, 14*mm, 15*mm, 19*mm, 13*mm, 17*mm]
+        col_widths = [6*mm, 35*mm, 15*mm, 15*mm, 15*mm, 19*mm, 13*mm, 16*mm]
 
     for idx, itm in enumerate(items, 1):
         if is_gst:
@@ -172,7 +174,6 @@ def generate_a5_pdf(doc_type, meta_info, items, pdf_path):
     story.append(item_table)
     story.append(Spacer(1, 1.5*mm))
 
-    # Left Side: Terms & Conditions + SOVAA JEWELLERS Signatory
     cond_line = "1. We are not responsible for any breakage/damage.<br/>" if is_gst else "1. Estimation only. Rates subject to daily market change.<br/>"
     left_block = Paragraph(
         "<b>Terms & Conditions:</b><br/>"
@@ -186,7 +187,6 @@ def generate_a5_pdf(doc_type, meta_info, items, pdf_path):
     old_exchange = meta_info.get('old_exchange', 0.0)
     exchange_label = meta_info.get('exchange_label', 'Less Old Exchange')
 
-    # Right Side: Calculations
     if is_gst:
         summary_rows = [
             [left_block, Paragraph("<b>Subtotal:</b>", cell_style), Paragraph(f"Rs. {meta_info['subtotal']:,.2f}", cell_style)],
