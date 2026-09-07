@@ -7,7 +7,7 @@ from reportlab.lib.pagesizes import A5
 from reportlab.lib import colors
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.lib.units import mm
+from reportlab.lib.units import mm, inch
 
 # Page Configuration
 st.set_page_config(page_title="SOVAA JEWELLERS - Billing & Estimate", layout="wide", page_icon="💎")
@@ -73,12 +73,13 @@ def save_to_database(row_dict, doc_type):
     df.to_excel(db_file, index=False)
 
 def generate_a5_pdf(doc_type, meta_info, items, pdf_path):
+    # Top Margin set to 1.7 Inch for letterhead
     doc = SimpleDocTemplate(
         pdf_path,
         pagesize=A5,
         leftMargin=7*mm,
         rightMargin=7*mm,
-        topMargin=30*mm,
+        topMargin=1.7*inch,
         bottomMargin=7*mm
     )
     story = []
@@ -95,7 +96,7 @@ def generate_a5_pdf(doc_type, meta_info, items, pdf_path):
     is_gst = (doc_type == "Tax Invoice (GST)")
     title_text = "<u>TAX INVOICE</u>" if is_gst else "<u>ESTIMATE</u>"
     story.append(Paragraph(title_text, title_style))
-    story.append(Spacer(1, 2*mm))
+    story.append(Spacer(1, 1.5*mm))
 
     if is_gst:
         meta_data = [
@@ -118,11 +119,11 @@ def generate_a5_pdf(doc_type, meta_info, items, pdf_path):
         ('BOX', (0,0), (-1,-1), 0.5, colors.HexColor('#0b2f64')),
         ('BACKGROUND', (0,0), (-1,-1), colors.HexColor('#f7f9fc')),
         ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-        ('TOPPADDING', (0,0), (-1,-1), 1.5),
-        ('BOTTOMPADDING', (0,0), (-1,-1), 1.5),
+        ('TOPPADDING', (0,0), (-1,-1), 1.2),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 1.2),
     ]))
     story.append(meta_table)
-    story.append(Spacer(1, 2*mm))
+    story.append(Spacer(1, 1.5*mm))
 
     if is_gst:
         item_rows = [[
@@ -142,7 +143,6 @@ def generate_a5_pdf(doc_type, meta_info, items, pdf_path):
         ]]
         col_widths = [6*mm, 36*mm, 14*mm, 14*mm, 15*mm, 19*mm, 13*mm, 17*mm]
 
-    # Only add actual items entered (No extra blank rows)
     for idx, itm in enumerate(items, 1):
         if is_gst:
             item_rows.append([
@@ -166,30 +166,30 @@ def generate_a5_pdf(doc_type, meta_info, items, pdf_path):
         ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#b0bec5')),
         ('ALIGN', (0,0), (-1,-1), 'CENTER'),
         ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-        ('TOPPADDING', (0,0), (-1,-1), 2),
-        ('BOTTOMPADDING', (0,0), (-1,-1), 2),
+        ('TOPPADDING', (0,0), (-1,-1), 1.8),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 1.8),
     ]))
     story.append(item_table)
-    story.append(Spacer(1, 2*mm))
+    story.append(Spacer(1, 1.5*mm))
 
-    terms_text = Paragraph(
+    # Left Side: Terms & Conditions + SOVAA JEWELLERS Signatory
+    cond_line = "1. We are not responsible for any breakage/damage.<br/>" if is_gst else "1. Estimation only. Rates subject to daily market change.<br/>"
+    left_block = Paragraph(
         "<b>Terms & Conditions:</b><br/>"
-        "1. Estimation only. Rates subject to daily market change.<br/>"
-        "2. All disputes subject to Jamshedpur jurisdiction.",
-        cell_style
-    ) if not is_gst else Paragraph(
-        "<b>Terms & Conditions:</b><br/>"
-        "1. We are not responsible for any breakage/damage.<br/>"
-        "2. All disputes subject to Jamshedpur jurisdiction.",
+        f"{cond_line}"
+        "2. All disputes subject to Jamshedpur jurisdiction.<br/><br/>"
+        "<b>For SOVAA JEWELLERS</b><br/><br/><br/>"
+        "(Authorised Signatory)",
         cell_style
     )
     
     old_exchange = meta_info.get('old_exchange', 0.0)
     exchange_label = meta_info.get('exchange_label', 'Less Old Exchange')
 
+    # Right Side: Calculations
     if is_gst:
         summary_rows = [
-            [terms_text, Paragraph("<b>Subtotal:</b>", cell_style), Paragraph(f"Rs. {meta_info['subtotal']:,.2f}", cell_style)],
+            [left_block, Paragraph("<b>Subtotal:</b>", cell_style), Paragraph(f"Rs. {meta_info['subtotal']:,.2f}", cell_style)],
             ["", Paragraph("<b>CGST (1.5%):</b>", cell_style), Paragraph(f"Rs. {meta_info['cgst']:,.2f}", cell_style)],
             ["", Paragraph("<b>SGST (1.5%):</b>", cell_style), Paragraph(f"Rs. {meta_info['sgst']:,.2f}", cell_style)],
             ["", Paragraph("<b>Gross Total:</b>", cell_style), Paragraph(f"Rs. {meta_info['gross']:,.2f}", cell_style)],
@@ -201,7 +201,7 @@ def generate_a5_pdf(doc_type, meta_info, items, pdf_path):
         summary_rows.append(["", Paragraph("<b>Net Payable:</b>", cell_bold), Paragraph(f"<b>Rs. {meta_info['net_payable']:,.2f}</b>", cell_bold)])
     else:
         summary_rows = [
-            [terms_text, Paragraph("<b>Total Value:</b>", cell_style), Paragraph(f"Rs. {meta_info['subtotal']:,.2f}", cell_style)],
+            [left_block, Paragraph("<b>Total Value:</b>", cell_style), Paragraph(f"Rs. {meta_info['subtotal']:,.2f}", cell_style)],
         ]
         if old_exchange > 0:
             summary_rows.append(["", Paragraph(f"<b>{exchange_label}:</b>", cell_style), Paragraph(f"- Rs. {old_exchange:,.2f}", cell_style)])
@@ -212,7 +212,7 @@ def generate_a5_pdf(doc_type, meta_info, items, pdf_path):
     summary_table = Table(summary_rows, colWidths=[68*mm, 35*mm, 31*mm])
     summary_table.setStyle(TableStyle([
         ('SPAN', (0,0), (0, len(summary_rows)-1)),
-        ('VALIGN', (0,0), (-1,-1), 'TOP'),
+        ('VALIGN', (0,0), (0,0), 'TOP'),
         ('BOX', (1,0), (-1,-1), 0.5, colors.HexColor('#0b2f64')),
         ('INNERGRID', (1,0), (-1,-1), 0.5, colors.HexColor('#cfd8dc')),
         ('BACKGROUND', (1, len(summary_rows)-1), (2, len(summary_rows)-1), colors.HexColor('#e8f5e9')),
@@ -220,16 +220,6 @@ def generate_a5_pdf(doc_type, meta_info, items, pdf_path):
         ('BOTTOMPADDING', (0,0), (-1,-1), 1.2),
     ]))
     story.append(summary_table)
-    story.append(Spacer(1, 2*mm))
-
-    sig_data = [
-        [
-            Paragraph("", cell_style), 
-            Paragraph("<b>For SOVAA JEWELLERS</b><br/><br/><br/>(Authorised Signatory)", ParagraphStyle('Sig', parent=styles['Normal'], alignment=1, fontSize=7, leading=9))
-        ]
-    ]
-    sig_table = Table(sig_data, colWidths=[80*mm, 54*mm])
-    story.append(sig_table)
 
     doc.build(story)
 
@@ -288,7 +278,6 @@ with st.form("item_entry_form", clear_on_submit=True):
     with ic7:
         purity = st.selectbox("Purity", purity_options, index=default_purity_idx)
 
-    # Label shows which item number you are currently adding
     next_item_no = len(st.session_state.items_list) + 1
     submitted = st.form_submit_button(f"➕ Add Item #{next_item_no}", use_container_width=True)
     if submitted:
