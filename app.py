@@ -45,14 +45,17 @@ if not st.session_state.authenticated:
 PDF_DIR = "Invoices_PDF"
 os.makedirs(PDF_DIR, exist_ok=True)
 
-if "cust_name_val" not in st.session_state:
-    st.session_state.cust_name_val = ""
-if "cust_mob_val" not in st.session_state:
-    st.session_state.cust_mob_val = ""
-if "cust_addr_val" not in st.session_state:
-    st.session_state.cust_addr_val = "Mango, Jamshedpur"
-if "cust_gstin_val" not in st.session_state:
-    st.session_state.cust_gstin_val = ""
+# Form Session States
+if "cust_name_input" not in st.session_state:
+    st.session_state.cust_name_input = ""
+if "cust_mob_input" not in st.session_state:
+    st.session_state.cust_mob_input = ""
+if "cust_addr_input" not in st.session_state:
+    st.session_state.cust_addr_input = "Mango, Jamshedpur"
+if "cust_gstin_input" not in st.session_state:
+    st.session_state.cust_gstin_input = ""
+if "items_list" not in st.session_state:
+    st.session_state.items_list = []
 
 COMMON_ITEMS = [
     "-- Select Common Item --",
@@ -181,6 +184,7 @@ def generate_a5_pdf(doc_type, meta_info, items, pdf_path):
     story.append(meta_table)
     story.append(Spacer(1, 1.5*mm))
 
+    # Perfect balanced columns for both GST & Estimate
     if is_gst:
         item_rows = [[
             Paragraph("Sr", cell_header), Paragraph("Description", cell_header),
@@ -197,7 +201,7 @@ def generate_a5_pdf(doc_type, meta_info, items, pdf_path):
             Paragraph("Purity", cell_header), Paragraph("Rate/10g", cell_header),
             Paragraph("Making", cell_header), Paragraph("Total Amount", cell_header)
         ]]
-        col_widths = [6*mm, 35*mm, 15*mm, 15*mm, 15*mm, 19*mm, 13*mm, 16*mm]
+        col_widths = [6*mm, 34*mm, 15*mm, 15*mm, 15*mm, 19*mm, 14*mm, 16*mm]
 
     for idx, itm in enumerate(items, 1):
         if is_gst:
@@ -228,6 +232,7 @@ def generate_a5_pdf(doc_type, meta_info, items, pdf_path):
     story.append(item_table)
     story.append(Spacer(1, 1.5*mm))
 
+    # Identical Left Block for both GST and Estimate
     cond_line = "1. We are not responsible for any breakage/damage.<br/>" if is_gst else "1. Estimation only. Rates subject to daily market change.<br/>"
     left_block = Paragraph(
         "<b>Terms & Conditions:</b><br/>"
@@ -308,11 +313,11 @@ with tab_billing:
     with c_hdr1:
         st.markdown("##### 👤 Customer Information")
     with c_hdr2:
-        if st.button("🧹 Clear Form / New"):
-            st.session_state.cust_name_val = ""
-            st.session_state.cust_mob_val = ""
-            st.session_state.cust_addr_val = "Mango, Jamshedpur"
-            st.session_state.cust_gstin_val = ""
+        if st.button("🧹 New / Clear Customer Form"):
+            st.session_state.cust_name_input = ""
+            st.session_state.cust_mob_input = ""
+            st.session_state.cust_addr_input = "Mango, Jamshedpur"
+            st.session_state.cust_gstin_input = ""
             st.rerun()
 
     col1, col2 = st.columns([1.5, 1.5])
@@ -327,21 +332,18 @@ with tab_billing:
                 st.session_state.current_doc_no = get_next_number(mode)
                 st.rerun()
                 
-        cust_name = st.text_input("Customer Name", value=st.session_state.cust_name_val, placeholder="e.g. Somnath Das")
-        cust_address = st.text_input("Address", value=st.session_state.cust_addr_val)
+        cust_name = st.text_input("Customer Name", key="cust_name_input", placeholder="e.g. Somnath Das")
+        cust_address = st.text_input("Address", key="cust_addr_input")
     with col2:
         doc_date = st.date_input("Date", value=datetime.today())
-        cust_mob = st.text_input("Mobile No", value=st.session_state.cust_mob_val, placeholder="10 Digit Number")
+        cust_mob = st.text_input("Mobile No", key="cust_mob_input", placeholder="10 Digit Number")
         if mode == "Tax Invoice (GST)":
-            cust_gstin = st.text_input("Party GSTIN (Optional)", value=st.session_state.cust_gstin_val, placeholder="Optional")
+            cust_gstin = st.text_input("Party GSTIN (Optional)", key="cust_gstin_input", placeholder="Optional")
         else:
             cust_gstin = ""
 
     st.markdown("---")
     st.subheader("🛒 Item Details")
-
-    if "items_list" not in st.session_state:
-        st.session_state.items_list = []
 
     selected_preset = st.selectbox("⚡ Quick Select Item (Optional)", COMMON_ITEMS)
 
@@ -538,9 +540,15 @@ with tab_billing:
                 }
                 save_to_database(db_row, mode)
 
-                with st.spinner("☁️ Google Sheet & Drive par upload ho raha hai..."):
+                with st.spinner("☁️ Google Sheet & Drive par sync ho raha hai..."):
                     sync_ok, drive_pdf_url = sync_to_google_sheet(payload)
 
+                # Reset customer info & items automatically for next fresh customer
+                st.session_state.cust_name_input = ""
+                st.session_state.cust_mob_input = ""
+                st.session_state.cust_addr_input = "Mango, Jamshedpur"
+                st.session_state.cust_gstin_input = ""
+                st.session_state.items_list = []
                 st.session_state.current_doc_no = get_next_number(mode)
                 
                 if sync_ok:
@@ -611,12 +619,12 @@ with tab_search:
                             st.caption(f"📦 Items: {row.get('Items', 'NA')}")
                         with r_col3:
                             st.markdown(f"💰 **₹{row.get('Net Payable', 0):,.2f}**")
-                            if st.button("⚡ Auto-Fill in New Bill", key=f"btn_search_fill_{idx}_{d_no}"):
-                                st.session_state.cust_name_val = c_name
-                                st.session_state.cust_mob_val = "" if c_mob == "NA" else c_mob
-                                st.session_state.cust_addr_val = c_addr
-                                st.session_state.cust_gstin_val = c_gst
-                                st.success(f"✅ {c_name} ki details New Bill tab mein load ho gayi hain! Upar 'New Bill / Estimate' tab par click karein.")
+                            if st.button("⚡ Auto-Fill in New Bill", key=f"btn_s_fill_{idx}_{d_no}"):
+                                st.session_state.cust_name_input = c_name
+                                st.session_state.cust_mob_input = "" if c_mob == "NA" else c_mob
+                                st.session_state.cust_addr_input = c_addr
+                                st.session_state.cust_gstin_input = c_gst
+                                st.success(f"✅ {c_name} ki details load ho gayi hain! Upar 'New Bill / Estimate' tab par click karein.")
                         with r_col4:
                             if os.path.exists(p_file):
                                 with open(p_file, "rb") as pf:
@@ -625,7 +633,7 @@ with tab_search:
                                         data=pf,
                                         file_name=f"{d_no}.pdf",
                                         mime="application/pdf",
-                                        key=f"btn_search_dl_{idx}_{d_no}"
+                                        key=f"btn_s_dl_{idx}_{d_no}"
                                     )
                         st.divider()
             else:
@@ -649,12 +657,12 @@ with tab_search:
                 with rc2:
                     st.markdown(f"📞 {c_mob} | 💰 ₹{row.get('Net Payable', 0):,.2f}")
                 with rc3:
-                    if st.button("⚡ Use Details", key=f"btn_recent_fill_{idx}_{d_no}"):
-                        st.session_state.cust_name_val = c_name
-                        st.session_state.cust_mob_val = "" if c_mob == "NA" else c_mob
-                        st.session_state.cust_addr_val = c_addr
-                        st.session_state.cust_gstin_val = c_gst
-                        st.success(f"✅ {c_name} ki details New Bill tab mein load ho gayi hain! Upar 'New Bill / Estimate' tab par click karein.")
+                    if st.button("⚡ Use Details", key=f"btn_r_fill_{idx}_{d_no}"):
+                        st.session_state.cust_name_input = c_name
+                        st.session_state.cust_mob_input = "" if c_mob == "NA" else c_mob
+                        st.session_state.cust_addr_input = c_addr
+                        st.session_state.cust_gstin_input = c_gst
+                        st.success(f"✅ {c_name} ki details load ho gayi hain! Upar 'New Bill / Estimate' tab par click karein.")
                 st.divider()
     else:
         st.info("Abhi tak koi transaction record nahi hua hai.")
