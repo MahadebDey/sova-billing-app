@@ -45,7 +45,6 @@ if not st.session_state.authenticated:
 PDF_DIR = "Invoices_PDF"
 os.makedirs(PDF_DIR, exist_ok=True)
 
-# Safe session state initialization
 if "c_name" not in st.session_state:
     st.session_state.c_name = ""
 if "c_mob" not in st.session_state:
@@ -98,11 +97,12 @@ def get_next_number(doc_type):
             df = pd.read_excel(db_file)
             if not df.empty and num_col in df.columns:
                 for val in df[num_col].dropna().astype(str):
-                    matches = re.findall(r'(\d+)$', val.strip())
-                    if matches:
-                        num = int(matches[0])
-                        if num > max_val:
-                            max_val = num
+                    if val.strip().startswith(prefix):
+                        matches = re.findall(r'(\d+)$', val.strip())
+                        if matches:
+                            num = int(matches[0])
+                            if num > max_val:
+                                max_val = num
         except Exception:
             pass
     
@@ -134,11 +134,11 @@ def sync_to_google_sheet(payload):
                 else:
                     return False, None, res_data.get("message", "Script Error")
             except Exception:
-                return False, None, f"Invalid JSON format received: {response.text}"
+                return False, None, f"Invalid JSON response: {response.text}"
         else:
-            return False, None, f"HTTP Connection Error: {response.status_code}"
+            return False, None, f"HTTP Error: {response.status_code}"
     except Exception as e:
-        return False, None, f"Network/Timeout Error: {str(e)}"
+        return False, None, f"Network Error: {str(e)}"
 
 def generate_a5_pdf(doc_type, meta_info, items, pdf_path):
     doc = SimpleDocTemplate(
@@ -308,14 +308,17 @@ tab_billing, tab_search = st.tabs(["📝 New Bill / Estimate", "🔍 Search Cust
 with tab_billing:
     mode = st.radio("Select Document Type", ["Tax Invoice (GST)", "Estimate (Without GST)"], horizontal=True)
 
-    if "last_mode" not in st.session_state:
-        st.session_state.last_mode = mode
-    if mode != st.session_state.last_mode:
-        st.session_state.last_mode = mode
-        st.session_state.current_doc_no = get_next_number(mode)
+    # Initialize mode tracker
+    if "selected_mode" not in st.session_state:
+        st.session_state.selected_mode = mode
 
-    if "current_doc_no" not in st.session_state:
-        st.session_state.current_doc_no = get_next_number(mode)
+    # If user switched mode, recalculate next number for that mode
+    if mode != st.session_state.selected_mode:
+        st.session_state.selected_mode = mode
+        st.session_state[f"doc_no_{mode}"] = get_next_number(mode)
+
+    if f"doc_no_{mode}" not in st.session_state:
+        st.session_state[f"doc_no_{mode}"] = get_next_number(mode)
 
     c_hdr1, c_hdr2 = st.columns([4, 1])
     with c_hdr1:
@@ -328,20 +331,26 @@ with tab_billing:
             st.session_state.c_gstin = ""
             st.session_state.items_list = []
             st.session_state.form_reset_count += 1
+            st.session_state[f"doc_no_{mode}"] = get_next_number(mode)
             st.rerun()
 
     r_key = st.session_state.form_reset_count
+    mode_tag = "gst" if mode == "Tax Invoice (GST)" else "est"
 
     col1, col2 = st.columns([1.5, 1.5])
     with col1:
         nc1, nc2 = st.columns([3, 1])
         with nc1:
-            doc_number = st.text_input("Invoice / Estimate No", value=st.session_state.current_doc_no, key=f"doc_no_{r_key}")
+            doc_number = st.text_input(
+                "Invoice / Estimate No", 
+                value=st.session_state[f"doc_no_{mode}"], 
+                key=f"doc_box_{mode_tag}_{r_key}"
+            )
         with nc2:
             st.write("")
             st.write("")
             if st.button("🔄 Auto", help="Latest serial number fetch karein"):
-                st.session_state.current_doc_no = get_next_number(mode)
+                st.session_state[f"doc_no_{mode}"] = get_next_number(mode)
                 st.rerun()
                 
         cust_name = st.text_input("Customer Name", value=st.session_state.c_name, key=f"cname_{r_key}", placeholder="e.g. Somnath Das")
@@ -552,17 +561,17 @@ with tab_billing:
                 }
                 save_to_database(db_row, mode)
 
-                with st.spinner("☁️ Google Sheet & Drive par upload ho raha hai (Kripya thodi der rukiye)..."):
+                with st.spinner("☁️ Google Sheet & Drive par upload ho raha hai..."):
                     sync_ok, drive_pdf_url, error_msg = sync_to_google_sheet(payload)
 
-                # Reset state cleanly
+                # Reset form & state cleanly
                 st.session_state.c_name = ""
                 st.session_state.c_mob = ""
                 st.session_state.c_addr = "Mango, Jamshedpur"
                 st.session_state.c_gstin = ""
                 st.session_state.items_list = []
                 st.session_state.form_reset_count += 1
-                st.session_state.current_doc_no = get_next_number(mode)
+                st.session_state[f"doc_no_{mode}"] = get_next_number(mode)
                 
                 if sync_ok:
                     st.success(f"✅ {mode} ({doc_number}) safalta-purvak ban gaya aur Cloud par upload ho gaya!")
@@ -570,7 +579,6 @@ with tab_billing:
                         st.markdown(f"🔗 [Google Drive par PDF dekhein]({drive_pdf_url})")
                 else:
                     st.error(f"⚠️ Google Upload Failed: **{error_msg}**")
-                    st.warning("Bill local app par theek se save ho gaya hai, par Google Drive/Sheet par nahi gaya.")
 
                 with open(pdf_filepath, "rb") as f:
                     st.download_button(
