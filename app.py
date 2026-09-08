@@ -12,6 +12,30 @@ from reportlab.lib.units import mm, inch
 # Page Configuration
 st.set_page_config(page_title="SOVAA JEWELLERS - Billing & Estimate", layout="wide", page_icon="💎")
 
+# --- PASSWORD AUTHENTICATION ---
+APP_PASSWORD = "sovaa"
+
+if "authenticated" not in st.session_state:
+    st.session_state.authenticated = False
+
+def check_password():
+    if st.session_state.get("password_input") == APP_PASSWORD:
+        st.session_state.authenticated = True
+        del st.session_state["password_input"]
+    else:
+        st.error("❌ Galat Password! Kripya sahi password dalein.")
+
+if not st.session_state.authenticated:
+    st.markdown("<h2 style='text-align: center;'>🔒 SOVAA JEWELLERS</h2>", unsafe_allow_html=True)
+    st.markdown("<p style='text-align: center;'>App access karne ke liye password enter karein</p>", unsafe_allow_html=True)
+    
+    col_l, col_m, col_r = st.columns([1, 1.2, 1])
+    with col_m:
+        st.text_input("Password", type="password", key="password_input", on_change=check_password)
+        st.button("🔓 Unlock App", on_click=check_password, use_container_width=True)
+    st.stop()
+
+# --- APP START AFTER LOGIN ---
 PDF_DIR = "Invoices_PDF"
 os.makedirs(PDF_DIR, exist_ok=True)
 
@@ -126,7 +150,6 @@ def generate_a5_pdf(doc_type, meta_info, items, pdf_path):
     story.append(meta_table)
     story.append(Spacer(1, 1.5*mm))
 
-    # Perfectly calibrated widths totaling 134mm (No text clipping)
     if is_gst:
         item_rows = [[
             Paragraph("Sr", cell_header), Paragraph("Description", cell_header),
@@ -223,8 +246,15 @@ def generate_a5_pdf(doc_type, meta_info, items, pdf_path):
 
     doc.build(story)
 
-# --- STREAMLIT UI ---
-st.title("💎 SOVAA JEWELLERS - System")
+# --- TOP HEADER & LOGOUT ---
+head_col1, head_col2 = st.columns([4, 1])
+with head_col1:
+    st.title("💎 SOVAA JEWELLERS - System")
+with head_col2:
+    st.write("")
+    if st.button("🔒 Logout"):
+        st.session_state.authenticated = False
+        st.rerun()
 
 mode = st.radio("Select Document Type", ["Tax Invoice (GST)", "Estimate (Without GST)"], horizontal=True)
 
