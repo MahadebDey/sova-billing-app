@@ -15,7 +15,7 @@ from reportlab.lib.units import mm, inch
 # Page Configuration
 st.set_page_config(page_title="SOVAA JEWELLERS - Billing & Sync", layout="wide", page_icon="💎")
 
-# Google Apps Script Web App URL for Sheet & Drive Sync
+# Google Apps Script Web App URL
 GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbx9zxPUIPhyCk46GLaYeBlBdcF--BbQStDSi-EQAGdcmqj-E6ahzfVmPH4KqEfT0WatCQ/exec"
 
 # --- PASSWORD AUTHENTICATION ---
@@ -502,11 +502,9 @@ with tab_billing:
 
                 generate_a5_pdf(mode, meta_info, st.session_state.items_list, pdf_filepath)
 
-                # Convert PDF to base64 for Drive upload
                 with open(pdf_filepath, "rb") as f:
                     pdf_base64 = base64.b64encode(f.read()).decode('utf-8')
 
-                # Prepare Payload for Google Sheet + Drive
                 payload = {
                     "doc_no": doc_number,
                     "date": formatted_date,
@@ -522,7 +520,6 @@ with tab_billing:
                     "pdf_base64": pdf_base64
                 }
 
-                # Save locally in Excel database
                 items_summary_str = ", ".join([f"{it['desc']} ({it['net_wt']}g)" for it in st.session_state.items_list])
                 db_row = {
                     "Document No": doc_number,
@@ -541,7 +538,6 @@ with tab_billing:
                 }
                 save_to_database(db_row, mode)
 
-                # Sync to Google Cloud (Sheets + Drive)
                 with st.spinner("☁️ Google Sheet & Drive par upload ho raha hai..."):
                     sync_ok, drive_pdf_url = sync_to_google_sheet(payload)
 
@@ -594,8 +590,8 @@ with tab_search:
             if not filtered_df.empty:
                 st.success(f"🎯 Total **{len(filtered_df)}** records mile:")
 
-                for _, row in filtered_df.iterrows():
-                    d_no = str(row["Document No"])
+                for idx, row in filtered_df.iterrows():
+                    d_no = str(row.get("Document No", ""))
                     c_name = str(row.get("Customer Name", ""))
                     c_mob = str(row.get("Mobile No", ""))
                     c_addr = str(row.get("Address", "Mango, Jamshedpur"))
@@ -608,14 +604,14 @@ with tab_search:
                     with card:
                         r_col1, r_col2, r_col3, r_col4 = st.columns([2, 2.5, 1.8, 1.2])
                         with r_col1:
-                            st.markdown(f"**{d_no}** ({row['Type']})")
+                            st.markdown(f"**{d_no}** ({row.get('Type', '')})")
                             st.caption(f"📅 {row.get('Date', '')}")
                         with r_col2:
                             st.markdown(f"👤 **{c_name}** | 📞 {c_mob}")
                             st.caption(f"📦 Items: {row.get('Items', 'NA')}")
                         with r_col3:
                             st.markdown(f"💰 **₹{row.get('Net Payable', 0):,.2f}**")
-                            if st.button("⚡ Auto-Fill in New Bill", key=f"fill_{d_no}"):
+                            if st.button("⚡ Auto-Fill in New Bill", key=f"btn_search_fill_{idx}_{d_no}"):
                                 st.session_state.cust_name_val = c_name
                                 st.session_state.cust_mob_val = "" if c_mob == "NA" else c_mob
                                 st.session_state.cust_addr_val = c_addr
@@ -629,7 +625,7 @@ with tab_search:
                                         data=pf,
                                         file_name=f"{d_no}.pdf",
                                         mime="application/pdf",
-                                        key=f"dl_search_{d_no}"
+                                        key=f"btn_search_dl_{idx}_{d_no}"
                                     )
                         st.divider()
             else:
@@ -638,8 +634,8 @@ with tab_search:
             st.info("💡 Upar search box mein customer ka naam ya mobile number likhein.")
             st.markdown("##### 🕒 Recent 5 Transactions:")
             recent_df = all_data.tail(5).iloc[::-1]
-            for _, row in recent_df.iterrows():
-                d_no = str(row["Document No"])
+            for idx, row in recent_df.iterrows():
+                d_no = str(row.get("Document No", ""))
                 c_name = str(row.get("Customer Name", ""))
                 c_mob = str(row.get("Mobile No", ""))
                 c_addr = str(row.get("Address", "Mango, Jamshedpur"))
@@ -653,7 +649,7 @@ with tab_search:
                 with rc2:
                     st.markdown(f"📞 {c_mob} | 💰 ₹{row.get('Net Payable', 0):,.2f}")
                 with rc3:
-                    if st.button("⚡ Use Details", key=f"rec_fill_{d_no}"):
+                    if st.button("⚡ Use Details", key=f"btn_recent_fill_{idx}_{d_no}"):
                         st.session_state.cust_name_val = c_name
                         st.session_state.cust_mob_val = "" if c_mob == "NA" else c_mob
                         st.session_state.cust_addr_val = c_addr
