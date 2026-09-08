@@ -45,17 +45,19 @@ if not st.session_state.authenticated:
 PDF_DIR = "Invoices_PDF"
 os.makedirs(PDF_DIR, exist_ok=True)
 
-# Form Session States
-if "cust_name_input" not in st.session_state:
-    st.session_state.cust_name_input = ""
-if "cust_mob_input" not in st.session_state:
-    st.session_state.cust_mob_input = ""
-if "cust_addr_input" not in st.session_state:
-    st.session_state.cust_addr_input = "Mango, Jamshedpur"
-if "cust_gstin_input" not in st.session_state:
-    st.session_state.cust_gstin_input = ""
+# Safe session state initialization
+if "c_name" not in st.session_state:
+    st.session_state.c_name = ""
+if "c_mob" not in st.session_state:
+    st.session_state.c_mob = ""
+if "c_addr" not in st.session_state:
+    st.session_state.c_addr = "Mango, Jamshedpur"
+if "c_gstin" not in st.session_state:
+    st.session_state.c_gstin = ""
 if "items_list" not in st.session_state:
     st.session_state.items_list = []
+if "form_reset_count" not in st.session_state:
+    st.session_state.form_reset_count = 0
 
 COMMON_ITEMS = [
     "-- Select Common Item --",
@@ -121,14 +123,22 @@ def save_to_database(row_dict, doc_type):
 
 def sync_to_google_sheet(payload):
     try:
-        response = requests.post(GOOGLE_SCRIPT_URL, json=payload, timeout=15)
+        headers = {"Content-Type": "application/json"}
+        response = requests.post(GOOGLE_SCRIPT_URL, json=payload, headers=headers, timeout=25)
+        
         if response.status_code == 200:
-            res_data = response.json()
-            if res_data.get("status") == "success":
-                return True, res_data.get("pdf_url")
-        return False, None
-    except Exception:
-        return False, None
+            try:
+                res_data = response.json()
+                if res_data.get("status") == "success":
+                    return True, res_data.get("pdf_url"), "Success"
+                else:
+                    return False, None, res_data.get("message", "Script Error")
+            except Exception:
+                return False, None, f"Invalid JSON format received: {response.text}"
+        else:
+            return False, None, f"HTTP Connection Error: {response.status_code}"
+    except Exception as e:
+        return False, None, f"Network/Timeout Error: {str(e)}"
 
 def generate_a5_pdf(doc_type, meta_info, items, pdf_path):
     doc = SimpleDocTemplate(
@@ -184,7 +194,6 @@ def generate_a5_pdf(doc_type, meta_info, items, pdf_path):
     story.append(meta_table)
     story.append(Spacer(1, 1.5*mm))
 
-    # Perfect balanced columns for both GST & Estimate
     if is_gst:
         item_rows = [[
             Paragraph("Sr", cell_header), Paragraph("Description", cell_header),
@@ -232,7 +241,6 @@ def generate_a5_pdf(doc_type, meta_info, items, pdf_path):
     story.append(item_table)
     story.append(Spacer(1, 1.5*mm))
 
-    # Identical Left Block for both GST and Estimate
     cond_line = "1. We are not responsible for any breakage/damage.<br/>" if is_gst else "1. Estimation only. Rates subject to daily market change.<br/>"
     left_block = Paragraph(
         "<b>Terms & Conditions:</b><br/>"
@@ -313,18 +321,22 @@ with tab_billing:
     with c_hdr1:
         st.markdown("##### 👤 Customer Information")
     with c_hdr2:
-        if st.button("🧹 New / Clear Customer Form"):
-            st.session_state.cust_name_input = ""
-            st.session_state.cust_mob_input = ""
-            st.session_state.cust_addr_input = "Mango, Jamshedpur"
-            st.session_state.cust_gstin_input = ""
+        if st.button("🧹 Clear Form / New Customer"):
+            st.session_state.c_name = ""
+            st.session_state.c_mob = ""
+            st.session_state.c_addr = "Mango, Jamshedpur"
+            st.session_state.c_gstin = ""
+            st.session_state.items_list = []
+            st.session_state.form_reset_count += 1
             st.rerun()
+
+    r_key = st.session_state.form_reset_count
 
     col1, col2 = st.columns([1.5, 1.5])
     with col1:
         nc1, nc2 = st.columns([3, 1])
         with nc1:
-            doc_number = st.text_input("Invoice / Estimate No", value=st.session_state.current_doc_no)
+            doc_number = st.text_input("Invoice / Estimate No", value=st.session_state.current_doc_no, key=f"doc_no_{r_key}")
         with nc2:
             st.write("")
             st.write("")
@@ -332,13 +344,13 @@ with tab_billing:
                 st.session_state.current_doc_no = get_next_number(mode)
                 st.rerun()
                 
-        cust_name = st.text_input("Customer Name", key="cust_name_input", placeholder="e.g. Somnath Das")
-        cust_address = st.text_input("Address", key="cust_addr_input")
+        cust_name = st.text_input("Customer Name", value=st.session_state.c_name, key=f"cname_{r_key}", placeholder="e.g. Somnath Das")
+        cust_address = st.text_input("Address", value=st.session_state.c_addr, key=f"caddr_{r_key}")
     with col2:
-        doc_date = st.date_input("Date", value=datetime.today())
-        cust_mob = st.text_input("Mobile No", key="cust_mob_input", placeholder="10 Digit Number")
+        doc_date = st.date_input("Date", value=datetime.today(), key=f"cdate_{r_key}")
+        cust_mob = st.text_input("Mobile No", value=st.session_state.c_mob, key=f"cmob_{r_key}", placeholder="10 Digit Number")
         if mode == "Tax Invoice (GST)":
-            cust_gstin = st.text_input("Party GSTIN (Optional)", key="cust_gstin_input", placeholder="Optional")
+            cust_gstin = st.text_input("Party GSTIN (Optional)", value=st.session_state.c_gstin, key=f"cgst_{r_key}", placeholder="Optional")
         else:
             cust_gstin = ""
 
@@ -540,23 +552,25 @@ with tab_billing:
                 }
                 save_to_database(db_row, mode)
 
-                with st.spinner("☁️ Google Sheet & Drive par sync ho raha hai..."):
-                    sync_ok, drive_pdf_url = sync_to_google_sheet(payload)
+                with st.spinner("☁️ Google Sheet & Drive par upload ho raha hai (Kripya thodi der rukiye)..."):
+                    sync_ok, drive_pdf_url, error_msg = sync_to_google_sheet(payload)
 
-                # Reset customer info & items automatically for next fresh customer
-                st.session_state.cust_name_input = ""
-                st.session_state.cust_mob_input = ""
-                st.session_state.cust_addr_input = "Mango, Jamshedpur"
-                st.session_state.cust_gstin_input = ""
+                # Reset state cleanly
+                st.session_state.c_name = ""
+                st.session_state.c_mob = ""
+                st.session_state.c_addr = "Mango, Jamshedpur"
+                st.session_state.c_gstin = ""
                 st.session_state.items_list = []
+                st.session_state.form_reset_count += 1
                 st.session_state.current_doc_no = get_next_number(mode)
                 
                 if sync_ok:
-                    st.success(f"✅ {mode} ({doc_number}) safalta-purvak ban gaya aur Google Sheet & Drive par sync ho gaya!")
+                    st.success(f"✅ {mode} ({doc_number}) safalta-purvak ban gaya aur Cloud par upload ho gaya!")
                     if drive_pdf_url:
                         st.markdown(f"🔗 [Google Drive par PDF dekhein]({drive_pdf_url})")
                 else:
-                    st.warning(f"⚠️ {mode} ({doc_number}) locally save ho gaya hai, par Google sync mein samay laga.")
+                    st.error(f"⚠️ Google Upload Failed: **{error_msg}**")
+                    st.warning("Bill local app par theek se save ho gaya hai, par Google Drive/Sheet par nahi gaya.")
 
                 with open(pdf_filepath, "rb") as f:
                     st.download_button(
@@ -600,12 +614,12 @@ with tab_search:
 
                 for idx, row in filtered_df.iterrows():
                     d_no = str(row.get("Document No", ""))
-                    c_name = str(row.get("Customer Name", ""))
-                    c_mob = str(row.get("Mobile No", ""))
-                    c_addr = str(row.get("Address", "Mango, Jamshedpur"))
-                    c_gst = str(row.get("Party GSTIN", ""))
-                    if c_gst == "NA":
-                        c_gst = ""
+                    c_name_val = str(row.get("Customer Name", ""))
+                    c_mob_val = str(row.get("Mobile No", ""))
+                    c_addr_val = str(row.get("Address", "Mango, Jamshedpur"))
+                    c_gst_val = str(row.get("Party GSTIN", ""))
+                    if c_gst_val == "NA":
+                        c_gst_val = ""
                     p_file = os.path.join(PDF_DIR, f"{d_no}.pdf")
 
                     card = st.container()
@@ -615,16 +629,17 @@ with tab_search:
                             st.markdown(f"**{d_no}** ({row.get('Type', '')})")
                             st.caption(f"📅 {row.get('Date', '')}")
                         with r_col2:
-                            st.markdown(f"👤 **{c_name}** | 📞 {c_mob}")
+                            st.markdown(f"👤 **{c_name_val}** | 📞 {c_mob_val}")
                             st.caption(f"📦 Items: {row.get('Items', 'NA')}")
                         with r_col3:
                             st.markdown(f"💰 **₹{row.get('Net Payable', 0):,.2f}**")
                             if st.button("⚡ Auto-Fill in New Bill", key=f"btn_s_fill_{idx}_{d_no}"):
-                                st.session_state.cust_name_input = c_name
-                                st.session_state.cust_mob_input = "" if c_mob == "NA" else c_mob
-                                st.session_state.cust_addr_input = c_addr
-                                st.session_state.cust_gstin_input = c_gst
-                                st.success(f"✅ {c_name} ki details load ho gayi hain! Upar 'New Bill / Estimate' tab par click karein.")
+                                st.session_state.c_name = c_name_val
+                                st.session_state.c_mob = "" if c_mob_val == "NA" else c_mob_val
+                                st.session_state.c_addr = c_addr_val
+                                st.session_state.c_gstin = c_gst_val
+                                st.session_state.form_reset_count += 1
+                                st.success(f"✅ {c_name_val} ki details load ho gayi hain! Upar 'New Bill / Estimate' tab par click karein.")
                         with r_col4:
                             if os.path.exists(p_file):
                                 with open(p_file, "rb") as pf:
@@ -644,25 +659,26 @@ with tab_search:
             recent_df = all_data.tail(5).iloc[::-1]
             for idx, row in recent_df.iterrows():
                 d_no = str(row.get("Document No", ""))
-                c_name = str(row.get("Customer Name", ""))
-                c_mob = str(row.get("Mobile No", ""))
-                c_addr = str(row.get("Address", "Mango, Jamshedpur"))
-                c_gst = str(row.get("Party GSTIN", ""))
-                if c_gst == "NA":
-                    c_gst = ""
+                c_name_val = str(row.get("Customer Name", ""))
+                c_mob_val = str(row.get("Mobile No", ""))
+                c_addr_val = str(row.get("Address", "Mango, Jamshedpur"))
+                c_gst_val = str(row.get("Party GSTIN", ""))
+                if c_gst_val == "NA":
+                    c_gst_val = ""
                 
                 rc1, rc2, rc3 = st.columns([2.5, 2.5, 2])
                 with rc1:
-                    st.markdown(f"**{d_no}** - {c_name}")
+                    st.markdown(f"**{d_no}** - {c_name_val}")
                 with rc2:
-                    st.markdown(f"📞 {c_mob} | 💰 ₹{row.get('Net Payable', 0):,.2f}")
+                    st.markdown(f"📞 {c_mob_val} | 💰 ₹{row.get('Net Payable', 0):,.2f}")
                 with rc3:
                     if st.button("⚡ Use Details", key=f"btn_r_fill_{idx}_{d_no}"):
-                        st.session_state.cust_name_input = c_name
-                        st.session_state.cust_mob_input = "" if c_mob == "NA" else c_mob
-                        st.session_state.cust_addr_input = c_addr
-                        st.session_state.cust_gstin_input = c_gst
-                        st.success(f"✅ {c_name} ki details load ho gayi hain! Upar 'New Bill / Estimate' tab par click karein.")
+                        st.session_state.c_name = c_name_val
+                        st.session_state.c_mob = "" if c_mob_val == "NA" else c_mob_val
+                        st.session_state.c_addr = c_addr_val
+                        st.session_state.c_gstin = c_gst_val
+                        st.session_state.form_reset_count += 1
+                        st.success(f"✅ {c_name_val} ki details load ho gayi hain! Upar 'New Bill / Estimate' tab par click karein.")
                 st.divider()
     else:
         st.info("Abhi tak koi transaction record nahi hua hai.")
