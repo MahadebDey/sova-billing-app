@@ -4,6 +4,8 @@ from datetime import datetime
 import os
 import math
 import re
+import base64
+import requests
 from reportlab.lib.pagesizes import A5
 from reportlab.lib import colors
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
@@ -11,7 +13,10 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import mm, inch
 
 # Page Configuration
-st.set_page_config(page_title="SOVAA JEWELLERS - Billing & Search", layout="wide", page_icon="💎")
+st.set_page_config(page_title="SOVAA JEWELLERS - Billing & Sync", layout="wide", page_icon="💎")
+
+# Google Apps Script Web App URL for Sheet & Drive Sync
+GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbx9zxPUIPhyCk46GLaYeBlBdcF--BbQStDSi-EQAGdcmqj-E6ahzfVmPH4KqEfT0WatCQ/exec"
 
 # --- PASSWORD AUTHENTICATION ---
 APP_PASSWORD = "sovaa"
@@ -40,7 +45,6 @@ if not st.session_state.authenticated:
 PDF_DIR = "Invoices_PDF"
 os.makedirs(PDF_DIR, exist_ok=True)
 
-# Customer Auto-fill session states
 if "cust_name_val" not in st.session_state:
     st.session_state.cust_name_val = ""
 if "cust_mob_val" not in st.session_state:
@@ -111,6 +115,17 @@ def save_to_database(row_dict, doc_type):
     else:
         df = pd.DataFrame([row_dict])
     df.to_excel(db_file, index=False)
+
+def sync_to_google_sheet(payload):
+    try:
+        response = requests.post(GOOGLE_SCRIPT_URL, json=payload, timeout=15)
+        if response.status_code == 200:
+            res_data = response.json()
+            if res_data.get("status") == "success":
+                return True, res_data.get("pdf_url")
+        return False, None
+    except Exception:
+        return False, None
 
 def generate_a5_pdf(doc_type, meta_info, items, pdf_path):
     doc = SimpleDocTemplate(
@@ -262,7 +277,7 @@ def generate_a5_pdf(doc_type, meta_info, items, pdf_path):
 
     doc.build(story)
 
-# --- TOP HEADER & LOGOUT ---
+# --- HEADER & LOGOUT ---
 head_col1, head_col2 = st.columns([4, 1])
 with head_col1:
     st.title("💎 SOVAA JEWELLERS - System")
@@ -272,7 +287,6 @@ with head_col2:
         st.session_state.authenticated = False
         st.rerun()
 
-# --- TABS ---
 tab_billing, tab_search = st.tabs(["📝 New Bill / Estimate", "🔍 Search Customer / History"])
 
 # ==========================================
@@ -290,7 +304,6 @@ with tab_billing:
     if "current_doc_no" not in st.session_state:
         st.session_state.current_doc_no = get_next_number(mode)
 
-    # Customer info box header with quick clear button
     c_hdr1, c_hdr2 = st.columns([4, 1])
     with c_hdr1:
         st.markdown("##### 👤 Customer Information")
@@ -489,8 +502,28 @@ with tab_billing:
 
                 generate_a5_pdf(mode, meta_info, st.session_state.items_list, pdf_filepath)
 
-                items_summary_str = ", ".join([f"{it['desc']} ({it['net_wt']}g)" for it in st.session_state.items_list])
+                # Convert PDF to base64 for Drive upload
+                with open(pdf_filepath, "rb") as f:
+                    pdf_base64 = base64.b64encode(f.read()).decode('utf-8')
 
+                # Prepare Payload for Google Sheet + Drive
+                payload = {
+                    "doc_no": doc_number,
+                    "date": formatted_date,
+                    "type": mode,
+                    "customer_name": cust_name.upper(),
+                    "customer_mob": str(cust_mob).strip() if cust_mob else "NA",
+                    "customer_address": cust_address,
+                    "gross": gross_total,
+                    "old_exchange": old_val_input,
+                    "net_payable": net_payable,
+                    "cgst": cgst,
+                    "sgst": sgst,
+                    "pdf_base64": pdf_base64
+                }
+
+                # Save locally in Excel database
+                items_summary_str = ", ".join([f"{it['desc']} ({it['net_wt']}g)" for it in st.session_state.items_list])
                 db_row = {
                     "Document No": doc_number,
                     "Date": formatted_date,
@@ -508,8 +541,18 @@ with tab_billing:
                 }
                 save_to_database(db_row, mode)
 
+                # Sync to Google Cloud (Sheets + Drive)
+                with st.spinner("☁️ Google Sheet & Drive par upload ho raha hai..."):
+                    sync_ok, drive_pdf_url = sync_to_google_sheet(payload)
+
                 st.session_state.current_doc_no = get_next_number(mode)
-                st.success(f"✅ {mode} ({doc_number}) safalta-purvak save ho gaya!")
+                
+                if sync_ok:
+                    st.success(f"✅ {mode} ({doc_number}) safalta-purvak ban gaya aur Google Sheet & Drive par sync ho gaya!")
+                    if drive_pdf_url:
+                        st.markdown(f"🔗 [Google Drive par PDF dekhein]({drive_pdf_url})")
+                else:
+                    st.warning(f"⚠️ {mode} ({doc_number}) locally save ho gaya hai, par Google sync mein samay laga.")
 
                 with open(pdf_filepath, "rb") as f:
                     st.download_button(
@@ -572,7 +615,6 @@ with tab_search:
                             st.caption(f"📦 Items: {row.get('Items', 'NA')}")
                         with r_col3:
                             st.markdown(f"💰 **₹{row.get('Net Payable', 0):,.2f}**")
-                            # Auto fill button
                             if st.button("⚡ Auto-Fill in New Bill", key=f"fill_{d_no}"):
                                 st.session_state.cust_name_val = c_name
                                 st.session_state.cust_mob_val = "" if c_mob == "NA" else c_mob
