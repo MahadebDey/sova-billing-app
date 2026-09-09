@@ -9,7 +9,7 @@ import requests
 import streamlit.components.v1 as components
 from reportlab.lib.pagesizes import A5
 from reportlab.lib import colors
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image as RLImage
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import mm, inch
 
@@ -126,7 +126,6 @@ def sync_to_google_sheet(payload):
     try:
         headers = {"Content-Type": "application/json"}
         response = requests.post(GOOGLE_SCRIPT_URL, json=payload, headers=headers, timeout=25)
-        
         if response.status_code == 200:
             try:
                 res_data = response.json()
@@ -142,41 +141,33 @@ def sync_to_google_sheet(payload):
         return False, None, f"Network Error: {str(e)}"
 
 def generate_a5_pdf(doc_type, meta_info, items, pdf_path):
+    # Top margin fixed to 1.7 inch for printed letterheads
     doc = SimpleDocTemplate(
         pdf_path,
         pagesize=A5,
-        leftMargin=6*mm,
-        rightMargin=6*mm,
-        topMargin=5*mm,
-        bottomMargin=5*mm
+        leftMargin=6 * mm,
+        rightMargin=6 * mm,
+        topMargin=1.7 * inch,
+        bottomMargin=5 * mm
     )
     story = []
     styles = getSampleStyleSheet()
     
     title_style = ParagraphStyle(
         'DocTitle', parent=styles['Normal'],
-        fontName='Helvetica-Bold', fontSize=9, leading=11, alignment=1
+        fontName='Helvetica-Bold', fontSize=10, leading=12, alignment=1, textColor=colors.black
     )
-    cell_style = ParagraphStyle('CellText', parent=styles['Normal'], fontName='Helvetica', fontSize=6.5, leading=8)
-    cell_bold = ParagraphStyle('CellBold', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=6.5, leading=8)
-    cell_header = ParagraphStyle('CellHeader', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=6.5, leading=8, textColor=colors.whitesmoke, alignment=1)
+    cell_style = ParagraphStyle('CellText', parent=styles['Normal'], fontName='Helvetica', fontSize=6.5, leading=8, textColor=colors.black)
+    cell_bold = ParagraphStyle('CellBold', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=6.5, leading=8, textColor=colors.black)
+    cell_header = ParagraphStyle('CellHeader', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=6.5, leading=8, textColor=colors.white, alignment=1)
 
-    # --- 1. HEADER BANNER IMAGE ---
-    header_img_path = "header.jpg"
-    if not os.path.exists(header_img_path):
-        header_img_path = "header.png"
-    
-    if os.path.exists(header_img_path):
-        story.append(RLImage(header_img_path, width=136*mm, height=36*mm))
-        story.append(Spacer(1, 1.5*mm))
-
-    # --- 2. TITLE ---
+    # 1. Document Title
     is_gst = (doc_type == "Tax Invoice (GST)")
     title_text = "<u>TAX INVOICE</u>" if is_gst else "<u>ESTIMATE</u>"
     story.append(Paragraph(title_text, title_style))
-    story.append(Spacer(1, 1.2*mm))
+    story.append(Spacer(1, 1.5 * mm))
 
-    # --- 3. CUSTOMER & METADATA TABLE ---
+    # 2. Customer & Metadata Table (Clean Black & White)
     cust_mob_display = meta_info['customer_mob'] if meta_info['customer_mob'] else "NA"
 
     if is_gst:
@@ -195,18 +186,17 @@ def generate_a5_pdf(doc_type, meta_info, items, pdf_path):
             [Paragraph(f"<b>Address:</b> {meta_info['customer_address']}", cell_style), Paragraph("", cell_style)]
         ]
 
-    meta_table = Table(meta_data, colWidths=[68*mm, 68*mm])
+    meta_table = Table(meta_data, colWidths=[68 * mm, 68 * mm])
     meta_table.setStyle(TableStyle([
-        ('BOX', (0,0), (-1,-1), 0.5, colors.HexColor('#0b2f64')),
-        ('BACKGROUND', (0,0), (-1,-1), colors.HexColor('#f7f9fc')),
+        ('BOX', (0,0), (-1,-1), 0.75, colors.black),
         ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
         ('TOPPADDING', (0,0), (-1,-1), 1.0),
         ('BOTTOMPADDING', (0,0), (-1,-1), 1.0),
     ]))
     story.append(meta_table)
-    story.append(Spacer(1, 1.5*mm))
+    story.append(Spacer(1, 1.5 * mm))
 
-    # --- 4. ITEMS TABLE ---
+    # 3. Items Table (Solid Black Header, Clear Black Lines)
     if is_gst:
         item_rows = [[
             Paragraph("Sr", cell_header), Paragraph("Description", cell_header),
@@ -215,7 +205,7 @@ def generate_a5_pdf(doc_type, meta_info, items, pdf_path):
             Paragraph("Rate/10g", cell_header), Paragraph("Making", cell_header),
             Paragraph("Total", cell_header)
         ]]
-        col_widths = [6*mm, 30*mm, 14*mm, 14*mm, 10*mm, 14*mm, 18*mm, 14*mm, 16*mm]
+        col_widths = [6 * mm, 30 * mm, 14 * mm, 14 * mm, 10 * mm, 14 * mm, 18 * mm, 14 * mm, 16 * mm]
     else:
         item_rows = [[
             Paragraph("Sr", cell_header), Paragraph("Description", cell_header),
@@ -223,7 +213,7 @@ def generate_a5_pdf(doc_type, meta_info, items, pdf_path):
             Paragraph("Purity", cell_header), Paragraph("Rate/10g", cell_header),
             Paragraph("Making", cell_header), Paragraph("Total Amount", cell_header)
         ]]
-        col_widths = [6*mm, 35*mm, 15*mm, 15*mm, 15*mm, 19*mm, 14*mm, 17*mm]
+        col_widths = [6 * mm, 35 * mm, 15 * mm, 15 * mm, 15 * mm, 19 * mm, 14 * mm, 17 * mm]
 
     for idx, itm in enumerate(items, 1):
         if is_gst:
@@ -244,17 +234,17 @@ def generate_a5_pdf(doc_type, meta_info, items, pdf_path):
 
     item_table = Table(item_rows, colWidths=col_widths)
     item_table.setStyle(TableStyle([
-        ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#0b2f64')),
-        ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#b0bec5')),
+        ('BACKGROUND', (0,0), (-1,0), colors.black),
+        ('GRID', (0,0), (-1,-1), 0.5, colors.black),
         ('ALIGN', (0,0), (-1,-1), 'CENTER'),
         ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
         ('TOPPADDING', (0,0), (-1,-1), 1.5),
         ('BOTTOMPADDING', (0,0), (-1,-1), 1.5),
     ]))
     story.append(item_table)
-    story.append(Spacer(1, 1.5*mm))
+    story.append(Spacer(1, 1.5 * mm))
 
-    # --- 5. SUMMARY & SIGNATURE BLOCK ---
+    # 4. Summary & Terms Block (Pure B&W Border)
     cond_line = "1. We are not responsible for any breakage/damage.<br/>" if is_gst else "1. Estimation only. Rates subject to daily market change.<br/>"
     left_block = Paragraph(
         "<b>Terms & Conditions:</b><br/>"
@@ -290,13 +280,12 @@ def generate_a5_pdf(doc_type, meta_info, items, pdf_path):
         summary_rows.append(["", Paragraph("<b>Round Off:</b>", cell_style), Paragraph(f"Rs. {meta_info['round_off']:+.2f}", cell_style)])
         summary_rows.append(["", Paragraph("<b>Net Estimated:</b>", cell_bold), Paragraph(f"<b>Rs. {meta_info['net_payable']:,.2f}</b>", cell_bold)])
 
-    summary_table = Table(summary_rows, colWidths=[68*mm, 36*mm, 32*mm])
+    summary_table = Table(summary_rows, colWidths=[68 * mm, 36 * mm, 32 * mm])
     summary_table.setStyle(TableStyle([
         ('SPAN', (0,0), (0, len(summary_rows)-1)),
         ('VALIGN', (0,0), (0,0), 'TOP'),
-        ('BOX', (1,0), (-1,-1), 0.5, colors.HexColor('#0b2f64')),
-        ('INNERGRID', (1,0), (-1,-1), 0.5, colors.HexColor('#cfd8dc')),
-        ('BACKGROUND', (1, len(summary_rows)-1), (2, len(summary_rows)-1), colors.HexColor('#e8f5e9')),
+        ('BOX', (1,0), (-1,-1), 0.75, colors.black),
+        ('INNERGRID', (1,0), (-1,-1), 0.5, colors.black),
         ('TOPPADDING', (0,0), (-1,-1), 1.0),
         ('BOTTOMPADDING', (0,0), (-1,-1), 1.0),
     ]))
@@ -304,7 +293,7 @@ def generate_a5_pdf(doc_type, meta_info, items, pdf_path):
 
     doc.build(story)
 
-# Helper function to trigger mobile print
+# Helper function for direct mobile print
 def render_mobile_print_button(pdf_base64, doc_no):
     print_code = f"""
     <html>
@@ -312,7 +301,7 @@ def render_mobile_print_button(pdf_base64, doc_no):
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <style>
       .print-btn {{
-        background-color: #28a745;
+        background-color: #333333;
         color: white;
         padding: 12px 20px;
         font-size: 16px;
@@ -325,7 +314,7 @@ def render_mobile_print_button(pdf_base64, doc_no):
         box-shadow: 0 4px 6px rgba(0,0,0,0.1);
       }}
       .print-btn:active {{
-        background-color: #1e7e34;
+        background-color: #000000;
       }}
     </style>
     </head>
@@ -629,7 +618,7 @@ with tab_billing:
                 with st.spinner("☁️ Google Sheet & Drive par upload ho raha hai..."):
                     sync_ok, drive_pdf_url, error_msg = sync_to_google_sheet(payload)
 
-                # Reset form & state cleanly
+                # Reset state cleanly for new bill
                 st.session_state.c_name = ""
                 st.session_state.c_mob = ""
                 st.session_state.c_addr = "Mango, Jamshedpur"
@@ -645,7 +634,7 @@ with tab_billing:
                 else:
                     st.error(f"⚠️ Google Upload Failed: **{error_msg}**")
 
-                # Mobile Direct Print Button
+                # Direct Mobile Print Trigger
                 render_mobile_print_button(pdf_base64, doc_number)
 
                 with open(pdf_filepath, "rb") as f:
