@@ -141,7 +141,7 @@ def sync_to_google_sheet(payload):
         return False, None, f"Network Error: {str(e)}"
 
 def generate_a5_pdf(doc_type, meta_info, items, pdf_path):
-    # Top margin fixed to 1.7 inch (43 mm) for printed letterhead
+    # Top margin fixed to 1.7 inch (43 mm) for printed letterheads
     doc = SimpleDocTemplate(
         pdf_path,
         pagesize=A5,
@@ -153,6 +153,7 @@ def generate_a5_pdf(doc_type, meta_info, items, pdf_path):
     story = []
     styles = getSampleStyleSheet()
     
+    # Soft, light & sharp typography (No overly dark ink blocks)
     title_style = ParagraphStyle(
         'DocTitle', parent=styles['Normal'],
         fontName='Helvetica-Bold', fontSize=10, leading=12, alignment=1, textColor=colors.HexColor('#222222')
@@ -160,8 +161,6 @@ def generate_a5_pdf(doc_type, meta_info, items, pdf_path):
     cell_style = ParagraphStyle('CellText', parent=styles['Normal'], fontName='Helvetica', fontSize=6.5, leading=8, textColor=colors.HexColor('#222222'))
     cell_bold = ParagraphStyle('CellBold', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=6.5, leading=8, textColor=colors.HexColor('#111111'))
     cell_header = ParagraphStyle('CellHeader', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=6.5, leading=8, textColor=colors.HexColor('#111111'), alignment=1)
-    cell_right = ParagraphStyle('CellRight', parent=styles['Normal'], fontName='Helvetica', fontSize=6.5, leading=8, textColor=colors.HexColor('#222222'), alignment=2)
-    cell_right_bold = ParagraphStyle('CellRightBold', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=6.5, leading=8, textColor=colors.HexColor('#111111'), alignment=2)
 
     # 1. Document Title
     is_gst = (doc_type == "Tax Invoice (GST)")
@@ -169,7 +168,7 @@ def generate_a5_pdf(doc_type, meta_info, items, pdf_path):
     story.append(Paragraph(title_text, title_style))
     story.append(Spacer(1, 1.5 * mm))
 
-    # 2. Customer & Metadata Table
+    # 2. Customer & Metadata Table (Light borders, soft background)
     cust_mob_display = meta_info['customer_mob'] if meta_info['customer_mob'] else "NA"
 
     if is_gst:
@@ -198,64 +197,60 @@ def generate_a5_pdf(doc_type, meta_info, items, pdf_path):
     story.append(meta_table)
     story.append(Spacer(1, 1.5 * mm))
 
-    # 3. Items Table (ONLY ACTUAL ITEMS - NO EMPTY BOXES)
+    # 3. Items Table (Light grey header strip, thin lines, no heavy dark black)
     if is_gst:
         item_rows = [[
-            Paragraph("Sr No.", cell_header), Paragraph("Particular/Description", cell_header),
-            Paragraph("Gross Wt.<br/>(g)", cell_header), Paragraph("Net Wt.(g)", cell_header),
-            Paragraph("HSN code", cell_header), Paragraph("Purity", cell_header),
-            Paragraph("Rate (Per 10 gm)", cell_header), Paragraph("Making (%)", cell_header),
-            Paragraph("Total Amount", cell_header)
+            Paragraph("Sr", cell_header), Paragraph("Description", cell_header),
+            Paragraph("Gross Wt", cell_header), Paragraph("Net Wt", cell_header),
+            Paragraph("HSN", cell_header), Paragraph("Purity", cell_header),
+            Paragraph("Rate/10g", cell_header), Paragraph("Making", cell_header),
+            Paragraph("Total", cell_header)
         ]]
-        col_widths = [8 * mm, 32 * mm, 14 * mm, 13 * mm, 12 * mm, 12 * mm, 17 * mm, 13 * mm, 15 * mm]
+        col_widths = [6 * mm, 30 * mm, 14 * mm, 14 * mm, 10 * mm, 14 * mm, 18 * mm, 14 * mm, 16 * mm]
     else:
         item_rows = [[
-            Paragraph("Sr No.", cell_header), Paragraph("Particular/Description", cell_header),
-            Paragraph("Gross Wt.<br/>(g)", cell_header), Paragraph("Net Wt.(g)", cell_header),
-            Paragraph("Purity", cell_header), Paragraph("Rate (Per 10 gm)", cell_header),
-            Paragraph("Making (%)", cell_header), Paragraph("Total Amount", cell_header)
+            Paragraph("Sr", cell_header), Paragraph("Description", cell_header),
+            Paragraph("Gross Wt", cell_header), Paragraph("Net Wt", cell_header),
+            Paragraph("Purity", cell_header), Paragraph("Rate/10g", cell_header),
+            Paragraph("Making", cell_header), Paragraph("Total Amount", cell_header)
         ]]
-        col_widths = [8 * mm, 36 * mm, 15 * mm, 15 * mm, 15 * mm, 18 * mm, 13 * mm, 16 * mm]
+        col_widths = [6 * mm, 35 * mm, 15 * mm, 15 * mm, 15 * mm, 19 * mm, 14 * mm, 17 * mm]
 
     for idx, itm in enumerate(items, 1):
         if is_gst:
             item_rows.append([
                 Paragraph(str(idx), cell_style), Paragraph(str(itm['desc']), cell_style),
-                Paragraph(f"{itm['gross_wt']:.2f}", cell_style), Paragraph(f"{itm['net_wt']:.2f}", cell_style),
+                Paragraph(f"{itm['gross_wt']:.2f} g", cell_style), Paragraph(f"{itm['net_wt']:.2f} g", cell_style),
                 Paragraph(str(itm['hsn']), cell_style), Paragraph(str(itm['purity']), cell_style),
-                Paragraph(f"₹{itm['rate']:,.2f}", cell_style), Paragraph(str(itm['making_display']), cell_style),
-                Paragraph(f"₹{itm['total']:,.2f}", cell_style)
+                Paragraph(f"Rs. {itm['rate']:,.2f}", cell_style), Paragraph(str(itm['making_display']), cell_style),
+                Paragraph(f"Rs. {itm['total']:,.2f}", cell_style)
             ])
         else:
             item_rows.append([
                 Paragraph(str(idx), cell_style), Paragraph(str(itm['desc']), cell_style),
-                Paragraph(f"{itm['gross_wt']:.2f}", cell_style), Paragraph(f"{itm['net_wt']:.2f}", cell_style),
-                Paragraph(str(itm['purity']), cell_style), Paragraph(f"₹{itm['rate']:,.2f}", cell_style),
-                Paragraph(str(itm['making_display']), cell_style), Paragraph(f"₹{itm['total']:,.2f}", cell_style)
+                Paragraph(f"{itm['gross_wt']:.2f} g", cell_style), Paragraph(f"{itm['net_wt']:.2f} g", cell_style),
+                Paragraph(str(itm['purity']), cell_style), Paragraph(f"Rs. {itm['rate']:,.2f}", cell_style),
+                Paragraph(str(itm['making_display']), cell_style), Paragraph(f"Rs. {itm['total']:,.2f}", cell_style)
             ])
 
     item_table = Table(item_rows, colWidths=col_widths)
     item_table.setStyle(TableStyle([
-        ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#eeeeee')),
-        ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#555555')),
+        ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#eeeeee')),  # Soft light grey header
+        ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#555555')),       # Thin sharp border
         ('ALIGN', (0,0), (-1,-1), 'CENTER'),
         ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-        ('TOPPADDING', (0,0), (-1,-1), 1.8),
-        ('BOTTOMPADDING', (0,0), (-1,-1), 1.8),
+        ('TOPPADDING', (0,0), (-1,-1), 1.5),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 1.5),
     ]))
     story.append(item_table)
+    story.append(Spacer(1, 1.5 * mm))
 
-    # Clean Blank Space: Items ke baad bilkul saaf khali space (bina kisi line ya box ke)
-    # Kam items honge toh thoda bada gap rahega taaki bill proper format mein balance baithe
-    dynamic_blank_space = max(10 * mm, (5 - len(items)) * 6.5 * mm)
-    story.append(Spacer(1, dynamic_blank_space))
-
-    # 4. Terms (Left) and Calculations (Right)
-    cond_line = "1. WE ARE NOT RESPONSIBLE FOR ANY BREAKAGE/DAMAGE OF ANY ORNAMENT.<br/>" if is_gst else "1. ESTIMATION ONLY. RATES SUBJECT TO DAILY MARKET CHANGE.<br/>"
+    # 4. Summary & Terms Block (Light clean border)
+    cond_line = "1. We are not responsible for any breakage/damage.<br/>" if is_gst else "1. Estimation only. Rates subject to daily market change.<br/>"
     left_block = Paragraph(
         "<b>Terms & Conditions:</b><br/>"
         f"{cond_line}"
-        "2. ALL DISPUTES ARE SUBJECT TO JAMSHEDPUR JURISDICTION.<br/><br/>"
+        "2. All disputes subject to Jamshedpur jurisdiction.<br/><br/>"
         "<b>For SOVAA JEWELLERS</b><br/><br/><br/>"
         "(Authorised Signatory)",
         cell_style
@@ -266,35 +261,34 @@ def generate_a5_pdf(doc_type, meta_info, items, pdf_path):
 
     if is_gst:
         summary_rows = [
-            [left_block, Paragraph("<b>Total:</b>", cell_bold), Paragraph(f"₹{meta_info['subtotal']:,.2f}", cell_right)],
-            ["", Paragraph("<b>CGST (1.5%):</b>", cell_bold), Paragraph(f"₹{meta_info['cgst']:,.2f}", cell_right)],
-            ["", Paragraph("<b>SGST (1.5%):</b>", cell_bold), Paragraph(f"₹{meta_info['sgst']:,.2f}", cell_right)],
-            ["", Paragraph("<b>Gross Total:</b>", cell_bold), Paragraph(f"₹{meta_info['gross']:,.2f}", cell_right)],
+            [left_block, Paragraph("<b>Subtotal:</b>", cell_style), Paragraph(f"Rs. {meta_info['subtotal']:,.2f}", cell_style)],
+            ["", Paragraph("<b>CGST (1.5%):</b>", cell_style), Paragraph(f"Rs. {meta_info['cgst']:,.2f}", cell_style)],
+            ["", Paragraph("<b>SGST (1.5%):</b>", cell_style), Paragraph(f"Rs. {meta_info['sgst']:,.2f}", cell_style)],
+            ["", Paragraph("<b>Gross Total:</b>", cell_style), Paragraph(f"Rs. {meta_info['gross']:,.2f}", cell_style)],
         ]
         if old_exchange > 0:
-            summary_rows.append(["", Paragraph(f"<b>{exchange_label}:</b>", cell_bold), Paragraph(f"- ₹{old_exchange:,.2f}", cell_right)])
+            summary_rows.append(["", Paragraph(f"<b>{exchange_label}:</b>", cell_style), Paragraph(f"- Rs. {old_exchange:,.2f}", cell_style)])
         
-        summary_rows.append(["", Paragraph("<b>Round Off :</b>", cell_bold), Paragraph(f"₹{meta_info['round_off']:+.2f}", cell_right)])
-        summary_rows.append(["", Paragraph("<b>Net Payable:</b>", cell_bold), Paragraph(f"<b>₹{meta_info['net_payable']:,.2f}</b>", cell_right_bold)])
+        summary_rows.append(["", Paragraph("<b>Round Off:</b>", cell_style), Paragraph(f"Rs. {meta_info['round_off']:+.2f}", cell_style)])
+        summary_rows.append(["", Paragraph("<b>Net Payable:</b>", cell_bold), Paragraph(f"<b>Rs. {meta_info['net_payable']:,.2f}</b>", cell_bold)])
     else:
         summary_rows = [
-            [left_block, Paragraph("<b>Total:</b>", cell_bold), Paragraph(f"₹{meta_info['subtotal']:,.2f}", cell_right)],
+            [left_block, Paragraph("<b>Total Value:</b>", cell_style), Paragraph(f"Rs. {meta_info['subtotal']:,.2f}", cell_style)],
         ]
         if old_exchange > 0:
-            summary_rows.append(["", Paragraph(f"<b>{exchange_label}:</b>", cell_bold), Paragraph(f"- ₹{old_exchange:,.2f}", cell_right)])
+            summary_rows.append(["", Paragraph(f"<b>{exchange_label}:</b>", cell_style), Paragraph(f"- Rs. {old_exchange:,.2f}", cell_style)])
         
-        summary_rows.append(["", Paragraph("<b>Round Off :</b>", cell_bold), Paragraph(f"₹{meta_info['round_off']:+.2f}", cell_right)])
-        summary_rows.append(["", Paragraph("<b>Net Estimated:</b>", cell_bold), Paragraph(f"<b>₹{meta_info['net_payable']:,.2f}</b>", cell_right_bold)])
+        summary_rows.append(["", Paragraph("<b>Round Off:</b>", cell_style), Paragraph(f"Rs. {meta_info['round_off']:+.2f}", cell_style)])
+        summary_rows.append(["", Paragraph("<b>Net Estimated:</b>", cell_bold), Paragraph(f"<b>Rs. {meta_info['net_payable']:,.2f}</b>", cell_bold)])
 
-    summary_table = Table(summary_rows, colWidths=[76 * mm, 30 * mm, 30 * mm])
+    summary_table = Table(summary_rows, colWidths=[68 * mm, 36 * mm, 32 * mm])
     summary_table.setStyle(TableStyle([
         ('SPAN', (0,0), (0, len(summary_rows)-1)),
-        ('VALIGN', (0,0), (-1,-1), 'TOP'),
+        ('VALIGN', (0,0), (0,0), 'TOP'),
+        ('BOX', (1,0), (-1,-1), 0.5, colors.HexColor('#444444')),
+        ('INNERGRID', (1,0), (-1,-1), 0.4, colors.HexColor('#777777')),
         ('TOPPADDING', (0,0), (-1,-1), 1.0),
         ('BOTTOMPADDING', (0,0), (-1,-1), 1.0),
-        ('LINEBELOW', (1, len(summary_rows)-1), (2, len(summary_rows)-1), 1.2, colors.HexColor('#222222')),
-        ('LINEABOVE', (1, len(summary_rows)-1), (2, len(summary_rows)-1), 0.5, colors.HexColor('#222222')),
-        ('BACKGROUND', (1, len(summary_rows)-1), (2, len(summary_rows)-1), colors.HexColor('#f5f5f5')),
     ]))
     story.append(summary_table)
 
@@ -625,7 +619,7 @@ with tab_billing:
                 with st.spinner("☁️ Google Sheet & Drive par upload ho raha hai..."):
                     sync_ok, drive_pdf_url, error_msg = sync_to_google_sheet(payload)
 
-                # Reset state cleanly
+                # Reset form & state cleanly
                 st.session_state.c_name = ""
                 st.session_state.c_mob = ""
                 st.session_state.c_addr = "Mango, Jamshedpur"
@@ -641,7 +635,7 @@ with tab_billing:
                 else:
                     st.error(f"⚠️ Google Upload Failed: **{error_msg}**")
 
-                # Direct Mobile Print Trigger
+                # Direct Mobile Print Button
                 render_mobile_print_button(pdf_base64, doc_number)
 
                 with open(pdf_filepath, "rb") as f:
