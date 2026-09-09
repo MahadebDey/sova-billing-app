@@ -141,7 +141,7 @@ def sync_to_google_sheet(payload):
         return False, None, f"Network Error: {str(e)}"
 
 def generate_a5_pdf(doc_type, meta_info, items, pdf_path):
-    # Top margin fixed to 1.7 inch for printed letterheads
+    # Top margin fixed to 1.7 inch (43 mm) for printed letterheads
     doc = SimpleDocTemplate(
         pdf_path,
         pagesize=A5,
@@ -153,13 +153,14 @@ def generate_a5_pdf(doc_type, meta_info, items, pdf_path):
     story = []
     styles = getSampleStyleSheet()
     
+    # Soft, light & sharp typography (No overly dark ink blocks)
     title_style = ParagraphStyle(
         'DocTitle', parent=styles['Normal'],
-        fontName='Helvetica-Bold', fontSize=10, leading=12, alignment=1, textColor=colors.black
+        fontName='Helvetica-Bold', fontSize=10, leading=12, alignment=1, textColor=colors.HexColor('#222222')
     )
-    cell_style = ParagraphStyle('CellText', parent=styles['Normal'], fontName='Helvetica', fontSize=6.5, leading=8, textColor=colors.black)
-    cell_bold = ParagraphStyle('CellBold', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=6.5, leading=8, textColor=colors.black)
-    cell_header = ParagraphStyle('CellHeader', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=6.5, leading=8, textColor=colors.white, alignment=1)
+    cell_style = ParagraphStyle('CellText', parent=styles['Normal'], fontName='Helvetica', fontSize=6.5, leading=8, textColor=colors.HexColor('#222222'))
+    cell_bold = ParagraphStyle('CellBold', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=6.5, leading=8, textColor=colors.HexColor('#111111'))
+    cell_header = ParagraphStyle('CellHeader', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=6.5, leading=8, textColor=colors.HexColor('#111111'), alignment=1)
 
     # 1. Document Title
     is_gst = (doc_type == "Tax Invoice (GST)")
@@ -167,7 +168,7 @@ def generate_a5_pdf(doc_type, meta_info, items, pdf_path):
     story.append(Paragraph(title_text, title_style))
     story.append(Spacer(1, 1.5 * mm))
 
-    # 2. Customer & Metadata Table (Clean Black & White)
+    # 2. Customer & Metadata Table (Light borders, soft background)
     cust_mob_display = meta_info['customer_mob'] if meta_info['customer_mob'] else "NA"
 
     if is_gst:
@@ -188,7 +189,7 @@ def generate_a5_pdf(doc_type, meta_info, items, pdf_path):
 
     meta_table = Table(meta_data, colWidths=[68 * mm, 68 * mm])
     meta_table.setStyle(TableStyle([
-        ('BOX', (0,0), (-1,-1), 0.75, colors.black),
+        ('BOX', (0,0), (-1,-1), 0.5, colors.HexColor('#444444')),
         ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
         ('TOPPADDING', (0,0), (-1,-1), 1.0),
         ('BOTTOMPADDING', (0,0), (-1,-1), 1.0),
@@ -196,7 +197,7 @@ def generate_a5_pdf(doc_type, meta_info, items, pdf_path):
     story.append(meta_table)
     story.append(Spacer(1, 1.5 * mm))
 
-    # 3. Items Table (Solid Black Header, Clear Black Lines)
+    # 3. Items Table (Light grey header strip, thin lines, no heavy dark black)
     if is_gst:
         item_rows = [[
             Paragraph("Sr", cell_header), Paragraph("Description", cell_header),
@@ -234,8 +235,8 @@ def generate_a5_pdf(doc_type, meta_info, items, pdf_path):
 
     item_table = Table(item_rows, colWidths=col_widths)
     item_table.setStyle(TableStyle([
-        ('BACKGROUND', (0,0), (-1,0), colors.black),
-        ('GRID', (0,0), (-1,-1), 0.5, colors.black),
+        ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#eeeeee')),  # Soft light grey header
+        ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#555555')),       # Thin sharp border
         ('ALIGN', (0,0), (-1,-1), 'CENTER'),
         ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
         ('TOPPADDING', (0,0), (-1,-1), 1.5),
@@ -244,7 +245,7 @@ def generate_a5_pdf(doc_type, meta_info, items, pdf_path):
     story.append(item_table)
     story.append(Spacer(1, 1.5 * mm))
 
-    # 4. Summary & Terms Block (Pure B&W Border)
+    # 4. Summary & Terms Block (Light clean border)
     cond_line = "1. We are not responsible for any breakage/damage.<br/>" if is_gst else "1. Estimation only. Rates subject to daily market change.<br/>"
     left_block = Paragraph(
         "<b>Terms & Conditions:</b><br/>"
@@ -284,8 +285,8 @@ def generate_a5_pdf(doc_type, meta_info, items, pdf_path):
     summary_table.setStyle(TableStyle([
         ('SPAN', (0,0), (0, len(summary_rows)-1)),
         ('VALIGN', (0,0), (0,0), 'TOP'),
-        ('BOX', (1,0), (-1,-1), 0.75, colors.black),
-        ('INNERGRID', (1,0), (-1,-1), 0.5, colors.black),
+        ('BOX', (1,0), (-1,-1), 0.5, colors.HexColor('#444444')),
+        ('INNERGRID', (1,0), (-1,-1), 0.4, colors.HexColor('#777777')),
         ('TOPPADDING', (0,0), (-1,-1), 1.0),
         ('BOTTOMPADDING', (0,0), (-1,-1), 1.0),
     ]))
@@ -618,7 +619,7 @@ with tab_billing:
                 with st.spinner("☁️ Google Sheet & Drive par upload ho raha hai..."):
                     sync_ok, drive_pdf_url, error_msg = sync_to_google_sheet(payload)
 
-                # Reset state cleanly for new bill
+                # Reset form & state cleanly
                 st.session_state.c_name = ""
                 st.session_state.c_mob = ""
                 st.session_state.c_addr = "Mango, Jamshedpur"
@@ -634,7 +635,7 @@ with tab_billing:
                 else:
                     st.error(f"⚠️ Google Upload Failed: **{error_msg}**")
 
-                # Direct Mobile Print Trigger
+                # Direct Mobile Print Button
                 render_mobile_print_button(pdf_base64, doc_number)
 
                 with open(pdf_filepath, "rb") as f:
