@@ -141,19 +141,18 @@ def sync_to_google_sheet(payload):
         return False, None, f"Network Error: {str(e)}"
 
 def generate_a5_pdf(doc_type, meta_info, items, pdf_path):
-    # Top margin fixed to exactly 1.0 inch (shifted up by 0.7 inch from 1.7)
+    # Top margin exactly 1.2 inch for printed letterheads
     doc = SimpleDocTemplate(
         pdf_path,
         pagesize=A5,
         leftMargin=6 * mm,
         rightMargin=6 * mm,
-        topMargin=1.0 * inch,
+        topMargin=1.2 * inch,
         bottomMargin=5 * mm
     )
     story = []
     styles = getSampleStyleSheet()
     
-    # Clean, sharp & light black styling
     title_style = ParagraphStyle(
         'DocTitle', parent=styles['Normal'],
         fontName='Helvetica-Bold', fontSize=10, leading=12, alignment=1, textColor=colors.HexColor('#222222')
@@ -199,7 +198,7 @@ def generate_a5_pdf(doc_type, meta_info, items, pdf_path):
     story.append(meta_table)
     story.append(Spacer(1, 1.5 * mm))
 
-    # 3. Items Table (Only Actual Items - Light Grey Strip)
+    # 3. Items Table (Only Actual Items - Clean Light Border)
     if is_gst:
         item_rows = [[
             Paragraph("Sr", cell_header), Paragraph("Description", cell_header),
@@ -246,7 +245,7 @@ def generate_a5_pdf(doc_type, meta_info, items, pdf_path):
     ]))
     story.append(item_table)
 
-    # 4. Clean Blank Space (No empty grid boxes)
+    # 4. Clean Dynamic Blank Space
     dynamic_blank_space = max(10 * mm, (5 - len(items)) * 6.5 * mm)
     story.append(Spacer(1, dynamic_blank_space))
 
