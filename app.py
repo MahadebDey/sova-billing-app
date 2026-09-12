@@ -16,26 +16,18 @@ from reportlab.lib.units import mm, inch
 # Page Configuration
 st.set_page_config(page_title="SOVAA JEWELLERS - Billing & Sync", layout="wide", page_icon="💎")
 
-# Google Apps Script Web App URL (Updated with your latest URL)
+# Google Apps Script Web App URL
 GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwyLXOi4yCglsCueHm_nVQ9wYjPUI0eKsPlxYxYGqFnwIvcML66W5JWfRCwtqj8WuhU/exec"
 
 APP_PASSWORD = "sovaa"
 
-# --- AUTO-LOGIN VIA URL QUERY PARAMETER ---
-query_params = st.query_params
-if query_params.get("auth") == APP_PASSWORD:
-    st.session_state.authenticated = True
-
+# --- AUTO-LOGIN & CLEAN AUTHENTICATION ---
 if "authenticated" not in st.session_state:
     st.session_state.authenticated = False
 
-def check_password():
-    if st.session_state.get("password_input") == APP_PASSWORD:
-        st.session_state.authenticated = True
-        st.query_params["auth"] = APP_PASSWORD
-        del st.session_state["password_input"]
-    else:
-        st.error("❌ Galat Password! Kripya sahi password dalein.")
+query_params = st.query_params
+if query_params.get("auth") == APP_PASSWORD:
+    st.session_state.authenticated = True
 
 if not st.session_state.authenticated:
     st.markdown("<h2 style='text-align: center;'>🔒 SOVAA JEWELLERS</h2>", unsafe_allow_html=True)
@@ -43,8 +35,14 @@ if not st.session_state.authenticated:
     
     col_l, col_m, col_r = st.columns([1, 1.2, 1])
     with col_m:
-        st.text_input("Password", type="password", key="password_input", on_change=check_password)
-        st.button("🔓 Unlock App", on_click=check_password, use_container_width=True)
+        pwd_input = st.text_input("Password", type="password", key="login_pwd")
+        if st.button("🔓 Unlock App", use_container_width=True):
+            if pwd_input == APP_PASSWORD:
+                st.session_state.authenticated = True
+                st.query_params["auth"] = APP_PASSWORD
+                st.rerun()
+            else:
+                st.error("❌ Galat Password! Kripya sahi password dalein.")
     st.stop()
 
 # --- APP SETUP ---
