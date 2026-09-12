@@ -16,11 +16,15 @@ from reportlab.lib.units import mm, inch
 # Page Configuration
 st.set_page_config(page_title="SOVAA JEWELLERS - Billing & Sync", layout="wide", page_icon="💎")
 
-# Google Apps Script Web App URL
 GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbx9zxPUIPhyCk46GLaYeBlBdcF--BbQStDSi-EQAGdcmqj-E6ahzfVmPH4KqEfT0WatCQ/exec"
 
-# --- PASSWORD AUTHENTICATION ---
 APP_PASSWORD = "sovaa"
+
+# --- 1. AUTO-LOGIN VIA URL QUERY PARAMETER ---
+# URL mein ?auth=sovaa lagane par mobile mein kabhi password nahi maangega
+query_params = st.query_params
+if query_params.get("auth") == APP_PASSWORD:
+    st.session_state.authenticated = True
 
 if "authenticated" not in st.session_state:
     st.session_state.authenticated = False
@@ -28,6 +32,7 @@ if "authenticated" not in st.session_state:
 def check_password():
     if st.session_state.get("password_input") == APP_PASSWORD:
         st.session_state.authenticated = True
+        st.query_params["auth"] = APP_PASSWORD
         del st.session_state["password_input"]
     else:
         st.error("❌ Galat Password! Kripya sahi password dalein.")
@@ -86,6 +91,7 @@ COMMON_ITEMS = [
     "➕ Custom / Other Item"
 ]
 
+# --- 2. PERSISTENT SERIAL NUMBER (Local Excel + Google Sheet Sync) ---
 def get_next_number(doc_type):
     db_file = "Sales_Database.xlsx" if doc_type == "Tax Invoice (GST)" else "Estimate_Database.xlsx"
     prefix = "SV" if doc_type == "Tax Invoice (GST)" else "EST"
@@ -93,6 +99,7 @@ def get_next_number(doc_type):
     cur_year = datetime.now().year
     
     max_val = 0
+    # Step A: Local Excel se check karein
     if os.path.exists(db_file):
         try:
             df = pd.read_excel(db_file)
@@ -106,7 +113,19 @@ def get_next_number(doc_type):
                                 max_val = num
         except Exception:
             pass
-    
+
+    # Step B: Cloud Sync (Container restart hone par Google Sheet se number uthayega)
+    try:
+        res = requests.get(GOOGLE_SCRIPT_URL, timeout=4)
+        if res.status_code == 200:
+            cloud_data = res.json()
+            if cloud_data.get("status") == "success":
+                cloud_last = cloud_data.get("last_gst" if doc_type == "Tax Invoice (GST)" else "last_est", 0)
+                if cloud_last > max_val:
+                    max_val = cloud_last
+    except Exception:
+        pass
+
     next_seq = max_val + 1
     return f"{prefix}-{cur_year}-{str(next_seq).zfill(3)}"
 
@@ -141,7 +160,6 @@ def sync_to_google_sheet(payload):
         return False, None, f"Network Error: {str(e)}"
 
 def generate_a5_pdf(doc_type, meta_info, items, pdf_path):
-    # Top margin exactly 1.2 inch for printed letterheads
     doc = SimpleDocTemplate(
         pdf_path,
         pagesize=A5,
@@ -163,13 +181,11 @@ def generate_a5_pdf(doc_type, meta_info, items, pdf_path):
     cell_right = ParagraphStyle('CellRight', parent=styles['Normal'], fontName='Helvetica', fontSize=6.5, leading=8, textColor=colors.HexColor('#222222'), alignment=2)
     cell_right_bold = ParagraphStyle('CellRightBold', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=6.5, leading=8, textColor=colors.HexColor('#111111'), alignment=2)
 
-    # 1. Document Title
     is_gst = (doc_type == "Tax Invoice (GST)")
     title_text = "<u>TAX INVOICE</u>" if is_gst else "<u>ESTIMATE</u>"
     story.append(Paragraph(title_text, title_style))
     story.append(Spacer(1, 1.5 * mm))
 
-    # 2. Customer & Metadata Table
     cust_mob_display = meta_info['customer_mob'] if meta_info['customer_mob'] else "NA"
 
     if is_gst:
@@ -198,7 +214,6 @@ def generate_a5_pdf(doc_type, meta_info, items, pdf_path):
     story.append(meta_table)
     story.append(Spacer(1, 1.5 * mm))
 
-    # 3. Items Table (Only Actual Items - Clean Light Border)
     if is_gst:
         item_rows = [[
             Paragraph("Sr", cell_header), Paragraph("Description", cell_header),
@@ -245,11 +260,9 @@ def generate_a5_pdf(doc_type, meta_info, items, pdf_path):
     ]))
     story.append(item_table)
 
-    # 4. Clean Dynamic Blank Space
     dynamic_blank_space = max(10 * mm, (5 - len(items)) * 6.5 * mm)
     story.append(Spacer(1, dynamic_blank_space))
 
-    # 5. Summary & Terms Block
     cond_line = "1. We are not responsible for any breakage/damage.<br/>" if is_gst else "1. Estimation only. Rates subject to daily market change.<br/>"
     left_block = Paragraph(
         "<b>Terms & Conditions:</b><br/>"
@@ -298,7 +311,6 @@ def generate_a5_pdf(doc_type, meta_info, items, pdf_path):
 
     doc.build(story)
 
-# Helper function for direct mobile print
 def render_mobile_print_button(pdf_base64, doc_no):
     print_code = f"""
     <html>
@@ -351,7 +363,6 @@ def render_mobile_print_button(pdf_base64, doc_no):
     """
     components.html(print_code, height=60)
 
-# --- HEADER & LOGOUT ---
 head_col1, head_col2 = st.columns([4, 1])
 with head_col1:
     st.title("💎 SOVAA JEWELLERS - System")
@@ -359,13 +370,11 @@ with head_col2:
     st.write("")
     if st.button("🔒 Logout"):
         st.session_state.authenticated = False
+        st.query_params.clear()
         st.rerun()
 
 tab_billing, tab_search = st.tabs(["📝 New Bill / Estimate", "🔍 Search Customer / History"])
 
-# ==========================================
-# TAB 1: NEW BILLING
-# ==========================================
 with tab_billing:
     mode = st.radio("Select Document Type", ["Tax Invoice (GST)", "Estimate (Without GST)"], horizontal=True)
 
@@ -623,7 +632,6 @@ with tab_billing:
                 with st.spinner("☁️ Google Sheet & Drive par upload ho raha hai..."):
                     sync_ok, drive_pdf_url, error_msg = sync_to_google_sheet(payload)
 
-                # Reset form & state cleanly for new bill
                 st.session_state.c_name = ""
                 st.session_state.c_mob = ""
                 st.session_state.c_addr = "Mango, Jamshedpur"
@@ -639,7 +647,6 @@ with tab_billing:
                 else:
                     st.error(f"⚠️ Google Upload Failed: **{error_msg}**")
 
-                # Direct Mobile Print Trigger
                 render_mobile_print_button(pdf_base64, doc_number)
 
                 with open(pdf_filepath, "rb") as f:
@@ -651,9 +658,6 @@ with tab_billing:
                         use_container_width=True
                     )
 
-# ==========================================
-# TAB 2: SEARCH & AUTO-FILL CUSTOMER
-# ==========================================
 with tab_search:
     st.subheader("🔍 Customer Bill & History Search")
     st.write("Customer ka **Naam** ya **Mobile No** search karein. Naya bill banane ke liye **'⚡ Auto-Fill in New Bill'** par click karein:")
