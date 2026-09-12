@@ -16,12 +16,12 @@ from reportlab.lib.units import mm, inch
 # Page Configuration
 st.set_page_config(page_title="SOVAA JEWELLERS - Billing & Sync", layout="wide", page_icon="💎")
 
-GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbx9zxPUIPhyCk46GLaYeBlBdcF--BbQStDSi-EQAGdcmqj-E6ahzfVmPH4KqEfT0WatCQ/exec"
+# Google Apps Script Web App URL (Updated with your latest URL)
+GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwyLXOi4yCglsCueHm_nVQ9wYjPUI0eKsPlxYxYGqFnwIvcML66W5JWfRCwtqj8WuhU/exec"
 
 APP_PASSWORD = "sovaa"
 
-# --- 1. AUTO-LOGIN VIA URL QUERY PARAMETER ---
-# URL mein ?auth=sovaa lagane par mobile mein kabhi password nahi maangega
+# --- AUTO-LOGIN VIA URL QUERY PARAMETER ---
 query_params = st.query_params
 if query_params.get("auth") == APP_PASSWORD:
     st.session_state.authenticated = True
@@ -91,7 +91,7 @@ COMMON_ITEMS = [
     "➕ Custom / Other Item"
 ]
 
-# --- 2. PERSISTENT SERIAL NUMBER (Local Excel + Google Sheet Sync) ---
+# Persistent Serial Number Check
 def get_next_number(doc_type):
     db_file = "Sales_Database.xlsx" if doc_type == "Tax Invoice (GST)" else "Estimate_Database.xlsx"
     prefix = "SV" if doc_type == "Tax Invoice (GST)" else "EST"
@@ -99,7 +99,6 @@ def get_next_number(doc_type):
     cur_year = datetime.now().year
     
     max_val = 0
-    # Step A: Local Excel se check karein
     if os.path.exists(db_file):
         try:
             df = pd.read_excel(db_file)
@@ -114,7 +113,7 @@ def get_next_number(doc_type):
         except Exception:
             pass
 
-    # Step B: Cloud Sync (Container restart hone par Google Sheet se number uthayega)
+    # Cloud Google Sheet se latest check karein
     try:
         res = requests.get(GOOGLE_SCRIPT_URL, timeout=4)
         if res.status_code == 200:
