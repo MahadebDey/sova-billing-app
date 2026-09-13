@@ -19,32 +19,6 @@ st.set_page_config(page_title="SOVAA JEWELLERS - Billing & Sync", layout="wide",
 # Google Apps Script Web App URL
 GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwyLXOi4yCglsCueHm_nVQ9wYjPUI0eKsPlxYxYGqFnwIvcML66W5JWfRCwtqj8WuhU/exec"
 
-APP_PASSWORD = "sovaa"
-
-# --- AUTO-LOGIN & CLEAN AUTHENTICATION ---
-if "authenticated" not in st.session_state:
-    st.session_state.authenticated = False
-
-query_params = st.query_params
-if query_params.get("auth") == APP_PASSWORD:
-    st.session_state.authenticated = True
-
-if not st.session_state.authenticated:
-    st.markdown("<h2 style='text-align: center;'>🔒 SOVAA JEWELLERS</h2>", unsafe_allow_html=True)
-    st.markdown("<p style='text-align: center;'>App access karne ke liye password enter karein</p>", unsafe_allow_html=True)
-    
-    col_l, col_m, col_r = st.columns([1, 1.2, 1])
-    with col_m:
-        pwd_input = st.text_input("Password", type="password", key="login_pwd")
-        if st.button("🔓 Unlock App", use_container_width=True):
-            if pwd_input == APP_PASSWORD:
-                st.session_state.authenticated = True
-                st.query_params["auth"] = APP_PASSWORD
-                st.rerun()
-            else:
-                st.error("❌ Galat Password! Kripya sahi password dalein.")
-    st.stop()
-
 # --- APP SETUP ---
 PDF_DIR = "Invoices_PDF"
 os.makedirs(PDF_DIR, exist_ok=True)
@@ -89,14 +63,27 @@ COMMON_ITEMS = [
     "➕ Custom / Other Item"
 ]
 
-# Persistent Serial Number Check
+# Cloud-first Persistent Serial Counter
 def get_next_number(doc_type):
-    db_file = "Sales_Database.xlsx" if doc_type == "Tax Invoice (GST)" else "Estimate_Database.xlsx"
     prefix = "SV" if doc_type == "Tax Invoice (GST)" else "EST"
-    num_col = "Document No"
     cur_year = datetime.now().year
-    
     max_val = 0
+
+    # 1. Cloud Google Sheet se fetch karein (Hamesha number yaad rakhega)
+    try:
+        res = requests.get(GOOGLE_SCRIPT_URL, timeout=5)
+        if res.status_code == 200:
+            cloud_data = res.json()
+            if cloud_data.get("status") == "success":
+                cloud_num = cloud_data.get("last_gst" if doc_type == "Tax Invoice (GST)" else "last_est", 0)
+                if cloud_num and int(cloud_num) > max_val:
+                    max_val = int(cloud_num)
+    except Exception:
+        pass
+
+    # 2. Local Excel Backup (agar internet slow ho)
+    db_file = "Sales_Database.xlsx" if doc_type == "Tax Invoice (GST)" else "Estimate_Database.xlsx"
+    num_col = "Document No"
     if os.path.exists(db_file):
         try:
             df = pd.read_excel(db_file)
@@ -110,18 +97,6 @@ def get_next_number(doc_type):
                                 max_val = num
         except Exception:
             pass
-
-    # Cloud Google Sheet se latest check karein
-    try:
-        res = requests.get(GOOGLE_SCRIPT_URL, timeout=4)
-        if res.status_code == 200:
-            cloud_data = res.json()
-            if cloud_data.get("status") == "success":
-                cloud_last = cloud_data.get("last_gst" if doc_type == "Tax Invoice (GST)" else "last_est", 0)
-                if cloud_last > max_val:
-                    max_val = cloud_last
-    except Exception:
-        pass
 
     next_seq = max_val + 1
     return f"{prefix}-{cur_year}-{str(next_seq).zfill(3)}"
@@ -157,6 +132,7 @@ def sync_to_google_sheet(payload):
         return False, None, f"Network Error: {str(e)}"
 
 def generate_a5_pdf(doc_type, meta_info, items, pdf_path):
+    # Top margin fixed to 1.2 inch for printed letterheads
     doc = SimpleDocTemplate(
         pdf_path,
         pagesize=A5,
@@ -168,6 +144,7 @@ def generate_a5_pdf(doc_type, meta_info, items, pdf_path):
     story = []
     styles = getSampleStyleSheet()
     
+    # Crisp B&W Styling
     title_style = ParagraphStyle(
         'DocTitle', parent=styles['Normal'],
         fontName='Helvetica-Bold', fontSize=10, leading=12, alignment=1, textColor=colors.HexColor('#222222')
@@ -178,11 +155,13 @@ def generate_a5_pdf(doc_type, meta_info, items, pdf_path):
     cell_right = ParagraphStyle('CellRight', parent=styles['Normal'], fontName='Helvetica', fontSize=6.5, leading=8, textColor=colors.HexColor('#222222'), alignment=2)
     cell_right_bold = ParagraphStyle('CellRightBold', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=6.5, leading=8, textColor=colors.HexColor('#111111'), alignment=2)
 
+    # 1. Document Title
     is_gst = (doc_type == "Tax Invoice (GST)")
     title_text = "<u>TAX INVOICE</u>" if is_gst else "<u>ESTIMATE</u>"
     story.append(Paragraph(title_text, title_style))
     story.append(Spacer(1, 1.5 * mm))
 
+    # 2. Metadata Table
     cust_mob_display = meta_info['customer_mob'] if meta_info['customer_mob'] else "NA"
 
     if is_gst:
@@ -211,6 +190,7 @@ def generate_a5_pdf(doc_type, meta_info, items, pdf_path):
     story.append(meta_table)
     story.append(Spacer(1, 1.5 * mm))
 
+    # 3. Items Table
     if is_gst:
         item_rows = [[
             Paragraph("Sr", cell_header), Paragraph("Description", cell_header),
@@ -257,9 +237,11 @@ def generate_a5_pdf(doc_type, meta_info, items, pdf_path):
     ]))
     story.append(item_table)
 
+    # Clean Blank Space
     dynamic_blank_space = max(10 * mm, (5 - len(items)) * 6.5 * mm)
     story.append(Spacer(1, dynamic_blank_space))
 
+    # 4. Summary & Terms Block
     cond_line = "1. We are not responsible for any breakage/damage.<br/>" if is_gst else "1. Estimation only. Rates subject to daily market change.<br/>"
     left_block = Paragraph(
         "<b>Terms & Conditions:</b><br/>"
@@ -308,14 +290,22 @@ def generate_a5_pdf(doc_type, meta_info, items, pdf_path):
 
     doc.build(story)
 
+# Helper function with Strict Black & White / Grayscale Enforcement
 def render_mobile_print_button(pdf_base64, doc_no):
     print_code = f"""
     <html>
     <head>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <style>
+      @media print {{
+        html, body {{
+          filter: grayscale(100%) !important;
+          -webkit-filter: grayscale(100%) !important;
+          color: #000000 !important;
+        }}
+      }}
       .print-btn {{
-        background-color: #333333;
+        background-color: #222222;
         color: white;
         padding: 12px 20px;
         font-size: 16px;
@@ -360,30 +350,27 @@ def render_mobile_print_button(pdf_base64, doc_no):
     """
     components.html(print_code, height=60)
 
-head_col1, head_col2 = st.columns([4, 1])
-with head_col1:
-    st.title("💎 SOVAA JEWELLERS - System")
-with head_col2:
-    st.write("")
-    if st.button("🔒 Logout"):
-        st.session_state.authenticated = False
-        st.query_params.clear()
-        st.rerun()
+# --- HEADER ---
+st.title("💎 SOVAA JEWELLERS - System")
 
 tab_billing, tab_search = st.tabs(["📝 New Bill / Estimate", "🔍 Search Customer / History"])
 
 with tab_billing:
-    mode = st.radio("Select Document Type", ["Tax Invoice (GST)", "Estimate (Without GST)"], horizontal=True)
+    # By default "Estimate (Without GST)" (index=1)
+    mode = st.radio(
+        "Select Document Type",
+        ["Tax Invoice (GST)", "Estimate (Without GST)"],
+        index=1,
+        horizontal=True
+    )
 
-    if "selected_mode" not in st.session_state:
-        st.session_state.selected_mode = mode
+    # Mode switch ya initial start par serial number auto-fetch
+    if "current_mode" not in st.session_state or st.session_state.current_mode != mode:
+        st.session_state.current_mode = mode
+        st.session_state.active_doc_number = get_next_number(mode)
 
-    if mode != st.session_state.selected_mode:
-        st.session_state.selected_mode = mode
-        st.session_state[f"doc_no_{mode}"] = get_next_number(mode)
-
-    if f"doc_no_{mode}" not in st.session_state:
-        st.session_state[f"doc_no_{mode}"] = get_next_number(mode)
+    if "active_doc_number" not in st.session_state:
+        st.session_state.active_doc_number = get_next_number(mode)
 
     c_hdr1, c_hdr2 = st.columns([4, 1])
     with c_hdr1:
@@ -396,7 +383,7 @@ with tab_billing:
             st.session_state.c_gstin = ""
             st.session_state.items_list = []
             st.session_state.form_reset_count += 1
-            st.session_state[f"doc_no_{mode}"] = get_next_number(mode)
+            st.session_state.active_doc_number = get_next_number(mode)
             st.rerun()
 
     r_key = st.session_state.form_reset_count
@@ -408,14 +395,14 @@ with tab_billing:
         with nc1:
             doc_number = st.text_input(
                 "Invoice / Estimate No", 
-                value=st.session_state[f"doc_no_{mode}"], 
+                value=st.session_state.active_doc_number, 
                 key=f"doc_box_{mode_tag}_{r_key}"
             )
         with nc2:
             st.write("")
             st.write("")
-            if st.button("🔄 Auto", help="Latest serial number fetch karein"):
-                st.session_state[f"doc_no_{mode}"] = get_next_number(mode)
+            if st.button("🔄 Auto", help="Latest cloud serial number fetch karein"):
+                st.session_state.active_doc_number = get_next_number(mode)
                 st.rerun()
                 
         cust_name = st.text_input("Customer Name", value=st.session_state.c_name, key=f"cname_{r_key}", placeholder="e.g. Somnath Das")
@@ -629,13 +616,14 @@ with tab_billing:
                 with st.spinner("☁️ Google Sheet & Drive par upload ho raha hai..."):
                     sync_ok, drive_pdf_url, error_msg = sync_to_google_sheet(payload)
 
+                # Reset form & auto load next sequence number
                 st.session_state.c_name = ""
                 st.session_state.c_mob = ""
                 st.session_state.c_addr = "Mango, Jamshedpur"
                 st.session_state.c_gstin = ""
                 st.session_state.items_list = []
                 st.session_state.form_reset_count += 1
-                st.session_state[f"doc_no_{mode}"] = get_next_number(mode)
+                st.session_state.active_doc_number = get_next_number(mode)
                 
                 if sync_ok:
                     st.success(f"✅ {mode} ({doc_number}) ban gaya!")
