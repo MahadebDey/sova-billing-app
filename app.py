@@ -63,13 +63,26 @@ COMMON_ITEMS = [
     "➕ Custom / Other Item"
 ]
 
-# Cloud-first Persistent Serial Counter
+# Indian Financial Year Helper Function (1 April to 31 March)
+def get_current_fy_string():
+    now = datetime.now()
+    year = now.year
+    # Agar mahina Jan, Feb, Mar (1,2,3) hai toh financial year pichle saal 1 April se chal raha hai
+    if now.month < 4:
+        start_yr = year - 1
+        end_yr = year
+    else:
+        start_yr = year
+        end_yr = year + 1
+    return f"{str(start_yr)[-2:]}-{str(end_yr)[-2:]}"
+
+# Cloud-first Persistent Serial Counter with Auto FY Reset
 def get_next_number(doc_type):
     prefix = "SV" if doc_type == "Tax Invoice (GST)" else "EST"
-    cur_year = datetime.now().year
+    current_fy = get_current_fy_string()  # e.g. "26-27"
     max_val = 0
 
-    # 1. Cloud Google Sheet se fetch karein (Hamesha number yaad rakhega)
+    # 1. Cloud Google Sheet se latest current FY ka check karein
     try:
         res = requests.get(GOOGLE_SCRIPT_URL, timeout=5)
         if res.status_code == 200:
@@ -81,7 +94,7 @@ def get_next_number(doc_type):
     except Exception:
         pass
 
-    # 2. Local Excel Backup (agar internet slow ho)
+    # 2. Local Excel Backup (Sirf current FY ke bills count karega)
     db_file = "Sales_Database.xlsx" if doc_type == "Tax Invoice (GST)" else "Estimate_Database.xlsx"
     num_col = "Document No"
     if os.path.exists(db_file):
@@ -89,8 +102,10 @@ def get_next_number(doc_type):
             df = pd.read_excel(db_file)
             if not df.empty and num_col in df.columns:
                 for val in df[num_col].dropna().astype(str):
-                    if val.strip().startswith(prefix):
-                        matches = re.findall(r'(\d+)$', val.strip())
+                    val_clean = val.strip()
+                    # Sirf wahi bill compare karein jisme current FY laga ho
+                    if val_clean.startswith(prefix) and current_fy in val_clean:
+                        matches = re.findall(r'(\d+)$', val_clean)
                         if matches:
                             num = int(matches[0])
                             if num > max_val:
@@ -99,7 +114,8 @@ def get_next_number(doc_type):
             pass
 
     next_seq = max_val + 1
-    return f"{prefix}-{cur_year}-{str(next_seq).zfill(3)}"
+    # Example: EST-26-27/001 ya SV-26-27/001
+    return f"{prefix}-{current_fy}/{str(next_seq).zfill(3)}"
 
 def save_to_database(row_dict, doc_type):
     db_file = "Sales_Database.xlsx" if doc_type == "Tax Invoice (GST)" else "Estimate_Database.xlsx"
@@ -132,7 +148,6 @@ def sync_to_google_sheet(payload):
         return False, None, f"Network Error: {str(e)}"
 
 def generate_a5_pdf(doc_type, meta_info, items, pdf_path):
-    # Top margin fixed to 1.2 inch for printed letterheads
     doc = SimpleDocTemplate(
         pdf_path,
         pagesize=A5,
@@ -144,7 +159,6 @@ def generate_a5_pdf(doc_type, meta_info, items, pdf_path):
     story = []
     styles = getSampleStyleSheet()
     
-    # Crisp B&W Styling
     title_style = ParagraphStyle(
         'DocTitle', parent=styles['Normal'],
         fontName='Helvetica-Bold', fontSize=10, leading=12, alignment=1, textColor=colors.HexColor('#222222')
@@ -155,13 +169,11 @@ def generate_a5_pdf(doc_type, meta_info, items, pdf_path):
     cell_right = ParagraphStyle('CellRight', parent=styles['Normal'], fontName='Helvetica', fontSize=6.5, leading=8, textColor=colors.HexColor('#222222'), alignment=2)
     cell_right_bold = ParagraphStyle('CellRightBold', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=6.5, leading=8, textColor=colors.HexColor('#111111'), alignment=2)
 
-    # 1. Document Title
     is_gst = (doc_type == "Tax Invoice (GST)")
     title_text = "<u>TAX INVOICE</u>" if is_gst else "<u>ESTIMATE</u>"
     story.append(Paragraph(title_text, title_style))
     story.append(Spacer(1, 1.5 * mm))
 
-    # 2. Metadata Table
     cust_mob_display = meta_info['customer_mob'] if meta_info['customer_mob'] else "NA"
 
     if is_gst:
@@ -190,7 +202,6 @@ def generate_a5_pdf(doc_type, meta_info, items, pdf_path):
     story.append(meta_table)
     story.append(Spacer(1, 1.5 * mm))
 
-    # 3. Items Table
     if is_gst:
         item_rows = [[
             Paragraph("Sr", cell_header), Paragraph("Description", cell_header),
@@ -237,11 +248,9 @@ def generate_a5_pdf(doc_type, meta_info, items, pdf_path):
     ]))
     story.append(item_table)
 
-    # Clean Blank Space
     dynamic_blank_space = max(10 * mm, (5 - len(items)) * 6.5 * mm)
     story.append(Spacer(1, dynamic_blank_space))
 
-    # 4. Summary & Terms Block
     cond_line = "1. We are not responsible for any breakage/damage.<br/>" if is_gst else "1. Estimation only. Rates subject to daily market change.<br/>"
     left_block = Paragraph(
         "<b>Terms & Conditions:</b><br/>"
@@ -290,8 +299,9 @@ def generate_a5_pdf(doc_type, meta_info, items, pdf_path):
 
     doc.build(story)
 
-# Helper function with Strict Black & White / Grayscale Enforcement
 def render_mobile_print_button(pdf_base64, doc_no):
+    # Safely format filename without special slash characters
+    safe_name = str(doc_no).replace('/', '_')
     print_code = f"""
     <html>
     <head>
@@ -356,7 +366,6 @@ st.title("💎 SOVAA JEWELLERS - System")
 tab_billing, tab_search = st.tabs(["📝 New Bill / Estimate", "🔍 Search Customer / History"])
 
 with tab_billing:
-    # By default "Estimate (Without GST)" (index=1)
     mode = st.radio(
         "Select Document Type",
         ["Tax Invoice (GST)", "Estimate (Without GST)"],
@@ -364,7 +373,6 @@ with tab_billing:
         horizontal=True
     )
 
-    # Mode switch ya initial start par serial number auto-fetch
     if "current_mode" not in st.session_state or st.session_state.current_mode != mode:
         st.session_state.current_mode = mode
         st.session_state.active_doc_number = get_next_number(mode)
@@ -555,7 +563,8 @@ with tab_billing:
                 st.error("Customer Name zaroori hai!")
             else:
                 formatted_date = doc_date.strftime("%d %b %Y")
-                pdf_filename = f"{doc_number}.pdf"
+                safe_file_prefix = str(doc_number).replace('/', '_')
+                pdf_filename = f"{safe_file_prefix}.pdf"
                 pdf_filepath = os.path.join(PDF_DIR, pdf_filename)
 
                 meta_info = {
@@ -616,7 +625,7 @@ with tab_billing:
                 with st.spinner("☁️ Google Sheet & Drive par upload ho raha hai..."):
                     sync_ok, drive_pdf_url, error_msg = sync_to_google_sheet(payload)
 
-                # Reset form & auto load next sequence number
+                # Reset form & load next sequential number
                 st.session_state.c_name = ""
                 st.session_state.c_mob = ""
                 st.session_state.c_addr = "Mango, Jamshedpur"
@@ -679,7 +688,8 @@ with tab_search:
                     c_gst_val = str(row.get("Party GSTIN", ""))
                     if c_gst_val == "NA":
                         c_gst_val = ""
-                    p_file = os.path.join(PDF_DIR, f"{d_no}.pdf")
+                    safe_p_name = d_no.replace('/', '_')
+                    p_file = os.path.join(PDF_DIR, f"{safe_p_name}.pdf")
 
                     card = st.container()
                     with card:
@@ -692,7 +702,7 @@ with tab_search:
                             st.caption(f"📦 Items: {row.get('Items', 'NA')}")
                         with r_col3:
                             st.markdown(f"💰 **₹{row.get('Net Payable', 0):,.2f}**")
-                            if st.button("⚡ Auto-Fill in New Bill", key=f"btn_s_fill_{idx}_{d_no}"):
+                            if st.button("⚡ Auto-Fill in New Bill", key=f"btn_s_fill_{idx}_{safe_p_name}"):
                                 st.session_state.c_name = c_name_val
                                 st.session_state.c_mob = "" if c_mob_val == "NA" else c_mob_val
                                 st.session_state.c_addr = c_addr_val
@@ -705,9 +715,9 @@ with tab_search:
                                     st.download_button(
                                         label="⬇️ PDF",
                                         data=pf,
-                                        file_name=f"{d_no}.pdf",
+                                        file_name=f"{safe_p_name}.pdf",
                                         mime="application/pdf",
-                                        key=f"btn_s_dl_{idx}_{d_no}"
+                                        key=f"btn_s_dl_{idx}_{safe_p_name}"
                                     )
                         st.divider()
             else:
@@ -724,6 +734,7 @@ with tab_search:
                 c_gst_val = str(row.get("Party GSTIN", ""))
                 if c_gst_val == "NA":
                     c_gst_val = ""
+                safe_r_name = d_no.replace('/', '_')
                 
                 rc1, rc2, rc3 = st.columns([2.5, 2.5, 2])
                 with rc1:
@@ -731,7 +742,7 @@ with tab_search:
                 with rc2:
                     st.markdown(f"📞 {c_mob_val} | 💰 ₹{row.get('Net Payable', 0):,.2f}")
                 with rc3:
-                    if st.button("⚡ Use Details", key=f"btn_r_fill_{idx}_{d_no}"):
+                    if st.button("⚡ Use Details", key=f"btn_r_fill_{idx}_{safe_r_name}"):
                         st.session_state.c_name = c_name_val
                         st.session_state.c_mob = "" if c_mob_val == "NA" else c_mob_val
                         st.session_state.c_addr = c_addr_val
