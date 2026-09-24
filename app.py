@@ -16,6 +16,15 @@ from reportlab.lib.units import mm, inch
 # Page Configuration
 st.set_page_config(page_title="SOVAA JEWELLERS - Billing & Sync", layout="wide", page_icon="💎")
 
+# CSS: Input boxes mein typing ko uppercase (capital) dikhane ke liye
+st.markdown("""
+<style>
+input[type="text"] {
+    text-transform: uppercase !important;
+}
+</style>
+""", unsafe_allow_html=True)
+
 # Google Apps Script Web App URL
 GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwyLXOi4yCglsCueHm_nVQ9wYjPUI0eKsPlxYxYGqFnwIvcML66W5JWfRCwtqj8WuhU/exec"
 
@@ -23,12 +32,20 @@ GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwyLXOi4yCglsCueHm_
 PDF_DIR = "Invoices_PDF"
 os.makedirs(PDF_DIR, exist_ok=True)
 
+# Daily Rates Session Memory (22K, 18K aur Silver)
+if "daily_gold_rate" not in st.session_state:
+    st.session_state.daily_gold_rate = 72000.0
+if "daily_gold_18k_rate" not in st.session_state:
+    st.session_state.daily_gold_18k_rate = 59000.0
+if "daily_silver_rate" not in st.session_state:
+    st.session_state.daily_silver_rate = 880.0
+
 if "c_name" not in st.session_state:
     st.session_state.c_name = ""
 if "c_mob" not in st.session_state:
     st.session_state.c_mob = ""
 if "c_addr" not in st.session_state:
-    st.session_state.c_addr = "Mango, Jamshedpur"
+    st.session_state.c_addr = "MANGO, JAMSHEDPUR"
 if "c_gstin" not in st.session_state:
     st.session_state.c_gstin = ""
 if "items_list" not in st.session_state:
@@ -63,11 +80,9 @@ COMMON_ITEMS = [
     "➕ Custom / Other Item"
 ]
 
-# Indian Financial Year Helper Function (1 April to 31 March)
 def get_current_fy_string():
     now = datetime.now()
     year = now.year
-    # Agar mahina Jan, Feb, Mar (1,2,3) hai toh financial year pichle saal 1 April se chal raha hai
     if now.month < 4:
         start_yr = year - 1
         end_yr = year
@@ -76,13 +91,11 @@ def get_current_fy_string():
         end_yr = year + 1
     return f"{str(start_yr)[-2:]}-{str(end_yr)[-2:]}"
 
-# Cloud-first Persistent Serial Counter with Auto FY Reset
 def get_next_number(doc_type):
     prefix = "SV" if doc_type == "Tax Invoice (GST)" else "EST"
-    current_fy = get_current_fy_string()  # e.g. "26-27"
+    current_fy = get_current_fy_string()
     max_val = 0
 
-    # 1. Cloud Google Sheet se latest current FY ka check karein
     try:
         res = requests.get(GOOGLE_SCRIPT_URL, timeout=5)
         if res.status_code == 200:
@@ -94,7 +107,6 @@ def get_next_number(doc_type):
     except Exception:
         pass
 
-    # 2. Local Excel Backup (Sirf current FY ke bills count karega)
     db_file = "Sales_Database.xlsx" if doc_type == "Tax Invoice (GST)" else "Estimate_Database.xlsx"
     num_col = "Document No"
     if os.path.exists(db_file):
@@ -103,7 +115,6 @@ def get_next_number(doc_type):
             if not df.empty and num_col in df.columns:
                 for val in df[num_col].dropna().astype(str):
                     val_clean = val.strip()
-                    # Sirf wahi bill compare karein jisme current FY laga ho
                     if val_clean.startswith(prefix) and current_fy in val_clean:
                         matches = re.findall(r'(\d+)$', val_clean)
                         if matches:
@@ -114,7 +125,6 @@ def get_next_number(doc_type):
             pass
 
     next_seq = max_val + 1
-    # Example: EST-26-27/001 ya SV-26-27/001
     return f"{prefix}-{current_fy}/{str(next_seq).zfill(3)}"
 
 def save_to_database(row_dict, doc_type):
@@ -223,7 +233,7 @@ def generate_a5_pdf(doc_type, meta_info, items, pdf_path):
     for idx, itm in enumerate(items, 1):
         if is_gst:
             item_rows.append([
-                Paragraph(str(idx), cell_style), Paragraph(str(itm['desc']), cell_style),
+                Paragraph(str(idx), cell_style), Paragraph(str(itm['desc']).upper(), cell_style),
                 Paragraph(f"{itm['gross_wt']:.2f} g", cell_style), Paragraph(f"{itm['net_wt']:.2f} g", cell_style),
                 Paragraph(str(itm['hsn']), cell_style), Paragraph(str(itm['purity']), cell_style),
                 Paragraph(f"Rs. {itm['rate']:,.2f}", cell_style), Paragraph(str(itm['making_display']), cell_style),
@@ -231,7 +241,7 @@ def generate_a5_pdf(doc_type, meta_info, items, pdf_path):
             ])
         else:
             item_rows.append([
-                Paragraph(str(idx), cell_style), Paragraph(str(itm['desc']), cell_style),
+                Paragraph(str(idx), cell_style), Paragraph(str(itm['desc']).upper(), cell_style),
                 Paragraph(f"{itm['gross_wt']:.2f} g", cell_style), Paragraph(f"{itm['net_wt']:.2f} g", cell_style),
                 Paragraph(str(itm['purity']), cell_style), Paragraph(f"Rs. {itm['rate']:,.2f}", cell_style),
                 Paragraph(str(itm['making_display']), cell_style), Paragraph(f"Rs. {itm['total']:,.2f}", cell_style)
@@ -263,6 +273,7 @@ def generate_a5_pdf(doc_type, meta_info, items, pdf_path):
     
     old_exchange = meta_info.get('old_exchange', 0.0)
     exchange_label = meta_info.get('exchange_label', 'Less Old Exchange')
+    final_balance_label = meta_info.get('final_balance_label', 'Net Payable')
 
     if is_gst:
         summary_rows = [
@@ -275,7 +286,7 @@ def generate_a5_pdf(doc_type, meta_info, items, pdf_path):
             summary_rows.append(["", Paragraph(f"<b>{exchange_label}:</b>", cell_style), Paragraph(f"- Rs. {old_exchange:,.2f}", cell_right)])
         
         summary_rows.append(["", Paragraph("<b>Round Off:</b>", cell_style), Paragraph(f"Rs. {meta_info['round_off']:+.2f}", cell_right)])
-        summary_rows.append(["", Paragraph("<b>Net Payable:</b>", cell_bold), Paragraph(f"<b>Rs. {meta_info['net_payable']:,.2f}</b>", cell_right_bold)])
+        summary_rows.append(["", Paragraph(f"<b>{final_balance_label}:</b>", cell_bold), Paragraph(f"<b>Rs. {meta_info['net_payable']:,.2f}</b>", cell_right_bold)])
     else:
         summary_rows = [
             [left_block, Paragraph("<b>Total Value:</b>", cell_style), Paragraph(f"Rs. {meta_info['subtotal']:,.2f}", cell_right)],
@@ -284,7 +295,7 @@ def generate_a5_pdf(doc_type, meta_info, items, pdf_path):
             summary_rows.append(["", Paragraph(f"<b>{exchange_label}:</b>", cell_style), Paragraph(f"- Rs. {old_exchange:,.2f}", cell_right)])
         
         summary_rows.append(["", Paragraph("<b>Round Off:</b>", cell_style), Paragraph(f"Rs. {meta_info['round_off']:+.2f}", cell_right)])
-        summary_rows.append(["", Paragraph("<b>Net Estimated:</b>", cell_bold), Paragraph(f"<b>Rs. {meta_info['net_payable']:,.2f}</b>", cell_right_bold)])
+        summary_rows.append(["", Paragraph(f"<b>{final_balance_label}:</b>", cell_bold), Paragraph(f"<b>Rs. {meta_info['net_payable']:,.2f}</b>", cell_right_bold)])
 
     summary_table = Table(summary_rows, colWidths=[68 * mm, 36 * mm, 32 * mm])
     summary_table.setStyle(TableStyle([
@@ -300,8 +311,6 @@ def generate_a5_pdf(doc_type, meta_info, items, pdf_path):
     doc.build(story)
 
 def render_mobile_print_button(pdf_base64, doc_no):
-    # Safely format filename without special slash characters
-    safe_name = str(doc_no).replace('/', '_')
     print_code = f"""
     <html>
     <head>
@@ -363,6 +372,35 @@ def render_mobile_print_button(pdf_base64, doc_no):
 # --- HEADER ---
 st.title("💎 SOVAA JEWELLERS - System")
 
+# --- DAILY MARKET RATES PANEL (22K, 18K & Silver) ---
+with st.expander("📈 **Today's Market Rates (Aaj ka Gold & Silver Bhav)**", expanded=True):
+    r_col1, r_col2, r_col3 = st.columns(3)
+    with r_col1:
+        st.session_state.daily_gold_rate = st.number_input(
+            "🪙 22K Gold Rate (Per 10g) ₹", 
+            min_value=0.0, 
+            step=100.0, 
+            format="%.2f", 
+            value=float(st.session_state.daily_gold_rate)
+        )
+    with r_col2:
+        st.session_state.daily_gold_18k_rate = st.number_input(
+            "🪙 18K Gold Rate (Per 10g) ₹", 
+            min_value=0.0, 
+            step=100.0, 
+            format="%.2f", 
+            value=float(st.session_state.daily_gold_18k_rate)
+        )
+    with r_col3:
+        st.session_state.daily_silver_rate = st.number_input(
+            "🥈 Silver Rate (Per 10g) ₹", 
+            min_value=0.0, 
+            step=10.0, 
+            format="%.2f", 
+            value=float(st.session_state.daily_silver_rate)
+        )
+    st.caption("💡 Subah ek baar rate daal dein, pure din ke sabhi items me wahi rate automatically aa jayega.")
+
 tab_billing, tab_search = st.tabs(["📝 New Bill / Estimate", "🔍 Search Customer / History"])
 
 with tab_billing:
@@ -387,7 +425,7 @@ with tab_billing:
         if st.button("🧹 Clear Form / New Customer"):
             st.session_state.c_name = ""
             st.session_state.c_mob = ""
-            st.session_state.c_addr = "Mango, Jamshedpur"
+            st.session_state.c_addr = "MANGO, JAMSHEDPUR"
             st.session_state.c_gstin = ""
             st.session_state.items_list = []
             st.session_state.form_reset_count += 1
@@ -413,30 +451,47 @@ with tab_billing:
                 st.session_state.active_doc_number = get_next_number(mode)
                 st.rerun()
                 
-        cust_name = st.text_input("Customer Name", value=st.session_state.c_name, key=f"cname_{r_key}", placeholder="e.g. Somnath Das")
-        cust_address = st.text_input("Address", value=st.session_state.c_addr, key=f"caddr_{r_key}")
+        cust_name_in = st.text_input("Customer Name", value=st.session_state.c_name, key=f"cname_{r_key}", placeholder="e.g. SOMNATH DAS")
+        cust_address_in = st.text_input("Address", value=st.session_state.c_addr, key=f"caddr_{r_key}")
     with col2:
         doc_date = st.date_input("Date", value=datetime.today(), key=f"cdate_{r_key}")
         cust_mob = st.text_input("Mobile No", value=st.session_state.c_mob, key=f"cmob_{r_key}", placeholder="10 Digit Number")
         if mode == "Tax Invoice (GST)":
-            cust_gstin = st.text_input("Party GSTIN (Optional)", value=st.session_state.c_gstin, key=f"cgst_{r_key}", placeholder="Optional")
+            cust_gstin_in = st.text_input("Party GSTIN (Optional)", value=st.session_state.c_gstin, key=f"cgst_{r_key}", placeholder="OPTIONAL")
         else:
-            cust_gstin = ""
+            cust_gstin_in = ""
+
+    cust_name = cust_name_in.strip().upper()
+    cust_address = cust_address_in.strip().upper()
+    cust_gstin = cust_gstin_in.strip().upper()
 
     st.markdown("---")
     st.subheader("🛒 Item Details")
 
     selected_preset = st.selectbox("⚡ Quick Select Item (Optional)", COMMON_ITEMS)
 
-    purity_options = ["22K (916)", "SILVER", "18K (750)", "24K (999)"]
+    purity_options = ["22K (916)", "18K (750)", "SILVER", "24K (999)"]
     default_purity_idx = 0
+    auto_rate_val = st.session_state.daily_gold_rate
+
     if "SILVER" in selected_preset:
-        default_purity_idx = 1
+        default_purity_idx = 2
+        auto_rate_val = st.session_state.daily_silver_rate
     elif "GOLD" in selected_preset:
         default_purity_idx = 0
+        auto_rate_val = st.session_state.daily_gold_rate
+
+    # Quick helper for Purity selection change
+    purity_choice = st.selectbox("Purity", purity_options, index=default_purity_idx, key="purity_selector")
+    if purity_choice == "18K (750)":
+        auto_rate_val = st.session_state.daily_gold_18k_rate
+    elif purity_choice == "SILVER":
+        auto_rate_val = st.session_state.daily_silver_rate
+    elif purity_choice == "22K (916)":
+        auto_rate_val = st.session_state.daily_gold_rate
 
     with st.form("item_entry_form", clear_on_submit=True):
-        ic1, ic2, ic3, ic4, ic5, ic6, ic7 = st.columns([2.2, 1.1, 1.1, 1.3, 1.1, 0.8, 1.1])
+        ic1, ic2, ic3, ic4, ic5, ic6 = st.columns([2.5, 1.2, 1.2, 1.4, 1.2, 0.9])
         
         default_text = ""
         if selected_preset not in ["-- Select Common Item --", "➕ Custom / Other Item"]:
@@ -449,16 +504,14 @@ with tab_billing:
         with ic3:
             net_wt = st.number_input("Net Wt (g)", min_value=0.0, step=0.01, format="%.2f", value=None, placeholder="0.00")
         with ic4:
-            rate_10g = st.number_input("Rate (Per 10g)", min_value=0.0, step=10.0, format="%.2f", value=None, placeholder="Rate")
+            rate_10g = st.number_input("Rate (Per 10g)", min_value=0.0, step=10.0, format="%.2f", value=auto_rate_val)
         with ic5:
             making_val = st.number_input("Making Charge", min_value=0.0, step=1.0, value=None, placeholder="Making")
         with ic6:
             making_type = st.selectbox("Unit", ["%", "₹"])
-        with ic7:
-            purity = st.selectbox("Purity", purity_options, index=default_purity_idx)
 
         next_item_no = len(st.session_state.items_list) + 1
-        submitted = st.form_submit_button(f"➕ Add Item #{next_item_no}", use_container_width=True)
+        submitted = st.form_submit_button(f"➕ Add Item #{next_item_no} ({purity_choice})", use_container_width=True)
         if submitted:
             if item_desc and net_wt is not None and net_wt > 0 and rate_10g is not None and rate_10g > 0:
                 val = making_val if making_val is not None else 0.0
@@ -474,11 +527,11 @@ with tab_billing:
 
                 total_item_amt = metal_cost + making_amt
                 st.session_state.items_list.append({
-                    "desc": item_desc.upper(),
+                    "desc": item_desc.strip().upper(),
                     "gross_wt": g_wt,
                     "net_wt": net_wt,
                     "hsn": "7113",
-                    "purity": purity,
+                    "purity": purity_choice,
                     "rate": rate_10g,
                     "making_display": display_str,
                     "total": round(total_item_amt, 2)
@@ -537,9 +590,21 @@ with tab_billing:
                 old_val_input = gold_val + silver_val
                 exchange_display_label = "Less Old Gold & Silver Exchange"
 
-        after_exchange = max(0.0, gross_total - old_val_input)
-        net_payable = int(math.floor(after_exchange / 10.0) * 10)
-        round_off = round(net_payable - after_exchange, 2)
+        net_difference = gross_total - old_val_input
+        
+        if net_difference < 0:
+            is_refund = True
+            abs_diff = abs(net_difference)
+            final_amt = int(math.floor(abs_diff / 10.0) * 10)
+            round_off = round(final_amt - abs_diff, 2)
+            balance_label = "Refund / Return to Customer"
+            display_box_color = "🟢"
+        else:
+            is_refund = False
+            final_amt = int(math.floor(net_difference / 10.0) * 10)
+            round_off = round(final_amt - net_difference, 2)
+            balance_label = "Net Payable"
+            display_box_color = "💰"
 
         with sc2:
             st.subheader("📊 Bill Summary")
@@ -555,7 +620,7 @@ with tab_billing:
                 st.markdown(f"**{exchange_display_label}:** - Rs. {old_val_input:,.2f}")
             
             st.markdown(f"**Round Off:** Rs. {round_off:,.2f}")
-            st.subheader(f"💰 Net Payable: Rs. {net_payable:,.2f}")
+            st.subheader(f"{display_box_color} {balance_label}: Rs. {final_amt:,.2f}")
 
         btn_text = f"💾 Generate & Save {mode}"
         if st.button(btn_text, type="primary", use_container_width=True):
@@ -570,7 +635,7 @@ with tab_billing:
                 meta_info = {
                     "doc_no": doc_number,
                     "date": formatted_date,
-                    "customer_name": cust_name.upper(),
+                    "customer_name": cust_name,
                     "customer_mob": cust_mob,
                     "customer_address": cust_address,
                     "customer_gstin": cust_gstin,
@@ -581,7 +646,8 @@ with tab_billing:
                     "old_exchange": old_val_input,
                     "exchange_label": exchange_display_label,
                     "round_off": round_off,
-                    "net_payable": net_payable
+                    "net_payable": final_amt,
+                    "final_balance_label": balance_label
                 }
 
                 generate_a5_pdf(mode, meta_info, st.session_state.items_list, pdf_filepath)
@@ -593,12 +659,12 @@ with tab_billing:
                     "doc_no": doc_number,
                     "date": formatted_date,
                     "type": mode,
-                    "customer_name": cust_name.upper(),
+                    "customer_name": cust_name,
                     "customer_mob": str(cust_mob).strip() if cust_mob else "NA",
                     "customer_address": cust_address,
                     "gross": gross_total,
                     "old_exchange": old_val_input,
-                    "net_payable": net_payable,
+                    "net_payable": -final_amt if is_refund else final_amt,
                     "cgst": cgst,
                     "sgst": sgst,
                     "pdf_base64": pdf_base64
@@ -608,7 +674,7 @@ with tab_billing:
                 db_row = {
                     "Document No": doc_number,
                     "Date": formatted_date,
-                    "Customer Name": cust_name.upper(),
+                    "Customer Name": cust_name,
                     "Mobile No": str(cust_mob).strip() if cust_mob else "NA",
                     "Address": cust_address,
                     "Party GSTIN": cust_gstin if cust_gstin else "NA",
@@ -616,7 +682,7 @@ with tab_billing:
                     "Items": items_summary_str,
                     "Gross Amount": gross_total,
                     "Old Exchange": old_val_input,
-                    "Net Payable": net_payable,
+                    "Net Payable": f"Refund: Rs. {final_amt:,.2f}" if is_refund else final_amt,
                     "SGST": sgst,
                     "CGST": cgst
                 }
@@ -625,10 +691,9 @@ with tab_billing:
                 with st.spinner("☁️ Google Sheet & Drive par upload ho raha hai..."):
                     sync_ok, drive_pdf_url, error_msg = sync_to_google_sheet(payload)
 
-                # Reset form & load next sequential number
                 st.session_state.c_name = ""
                 st.session_state.c_mob = ""
-                st.session_state.c_addr = "Mango, Jamshedpur"
+                st.session_state.c_addr = "MANGO, JAMSHEDPUR"
                 st.session_state.c_gstin = ""
                 st.session_state.items_list = []
                 st.session_state.form_reset_count += 1
@@ -668,7 +733,7 @@ with tab_search:
 
     if records:
         all_data = pd.concat(records, ignore_index=True)
-        search_query = st.text_input("🔎 Search by Name or Mobile No", placeholder="e.g. Raju ya 77177...").strip()
+        search_query = st.text_input("🔎 Search by Name or Mobile No", placeholder="e.g. RAJU YA 77177...").strip()
 
         if search_query:
             mask = (
@@ -684,7 +749,7 @@ with tab_search:
                     d_no = str(row.get("Document No", ""))
                     c_name_val = str(row.get("Customer Name", ""))
                     c_mob_val = str(row.get("Mobile No", ""))
-                    c_addr_val = str(row.get("Address", "Mango, Jamshedpur"))
+                    c_addr_val = str(row.get("Address", "MANGO, JAMSHEDPUR"))
                     c_gst_val = str(row.get("Party GSTIN", ""))
                     if c_gst_val == "NA":
                         c_gst_val = ""
@@ -701,12 +766,12 @@ with tab_search:
                             st.markdown(f"👤 **{c_name_val}** | 📞 {c_mob_val}")
                             st.caption(f"📦 Items: {row.get('Items', 'NA')}")
                         with r_col3:
-                            st.markdown(f"💰 **₹{row.get('Net Payable', 0):,.2f}**")
+                            st.markdown(f"💰 **₹{row.get('Net Payable', 0)}**")
                             if st.button("⚡ Auto-Fill in New Bill", key=f"btn_s_fill_{idx}_{safe_p_name}"):
-                                st.session_state.c_name = c_name_val
+                                st.session_state.c_name = c_name_val.upper()
                                 st.session_state.c_mob = "" if c_mob_val == "NA" else c_mob_val
-                                st.session_state.c_addr = c_addr_val
-                                st.session_state.c_gstin = c_gst_val
+                                st.session_state.c_addr = c_addr_val.upper()
+                                st.session_state.c_gstin = c_gst_val.upper()
                                 st.session_state.form_reset_count += 1
                                 st.success(f"✅ {c_name_val} ki details load ho gayi hain! Upar 'New Bill / Estimate' tab par click karein.")
                         with r_col4:
@@ -730,7 +795,7 @@ with tab_search:
                 d_no = str(row.get("Document No", ""))
                 c_name_val = str(row.get("Customer Name", ""))
                 c_mob_val = str(row.get("Mobile No", ""))
-                c_addr_val = str(row.get("Address", "Mango, Jamshedpur"))
+                c_addr_val = str(row.get("Address", "MANGO, JAMSHEDPUR"))
                 c_gst_val = str(row.get("Party GSTIN", ""))
                 if c_gst_val == "NA":
                     c_gst_val = ""
@@ -740,13 +805,13 @@ with tab_search:
                 with rc1:
                     st.markdown(f"**{d_no}** - {c_name_val}")
                 with rc2:
-                    st.markdown(f"📞 {c_mob_val} | 💰 ₹{row.get('Net Payable', 0):,.2f}")
+                    st.markdown(f"📞 {c_mob_val} | 💰 ₹{row.get('Net Payable', 0)}")
                 with rc3:
                     if st.button("⚡ Use Details", key=f"btn_r_fill_{idx}_{safe_r_name}"):
-                        st.session_state.c_name = c_name_val
+                        st.session_state.c_name = c_name_val.upper()
                         st.session_state.c_mob = "" if c_mob_val == "NA" else c_mob_val
-                        st.session_state.c_addr = c_addr_val
-                        st.session_state.c_gstin = c_gst_val
+                        st.session_state.c_addr = c_addr_val.upper()
+                        st.session_state.c_gstin = c_gst_val.upper()
                         st.session_state.form_reset_count += 1
                         st.success(f"✅ {c_name_val} ki details load ho gayi hain! Upar 'New Bill / Estimate' tab par click karein.")
                 st.divider()
