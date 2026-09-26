@@ -4,6 +4,7 @@ from datetime import datetime
 import os
 import math
 import re
+import json
 import base64
 import requests
 import streamlit.components.v1 as components
@@ -32,13 +33,47 @@ GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwyLXOi4yCglsCueHm_
 PDF_DIR = "Invoices_PDF"
 os.makedirs(PDF_DIR, exist_ok=True)
 
-# Daily Rates Session Memory (22K, 18K aur Silver)
-if "daily_gold_rate" not in st.session_state:
-    st.session_state.daily_gold_rate = 72000.0
-if "daily_gold_18k_rate" not in st.session_state:
-    st.session_state.daily_gold_18k_rate = 59000.0
-if "daily_silver_rate" not in st.session_state:
-    st.session_state.daily_silver_rate = 880.0
+# --- PERMANENT RATES STORAGE (FILE BASED) ---
+RATES_FILE = "daily_rates.json"
+
+def load_saved_rates():
+    default_rates = {
+        "gold_22k": 72000.0,
+        "gold_18k": 59000.0,
+        "silver": 880.0
+    }
+    if os.path.exists(RATES_FILE):
+        try:
+            with open(RATES_FILE, "r") as f:
+                data = json.load(f)
+                return {
+                    "gold_22k": float(data.get("gold_22k", 72000.0)),
+                    "gold_18k": float(data.get("gold_18k", 59000.0)),
+                    "silver": float(data.get("silver", 880.0))
+                }
+        except Exception:
+            return default_rates
+    return default_rates
+
+def save_rates_to_file(g22, g18, sil):
+    rates_data = {
+        "gold_22k": float(g22),
+        "gold_18k": float(g18),
+        "silver": float(sil)
+    }
+    try:
+        with open(RATES_FILE, "w") as f:
+            json.dump(rates_data, f)
+    except Exception:
+        pass
+
+# Initialize session state from permanent file
+if "rates_loaded" not in st.session_state:
+    saved = load_saved_rates()
+    st.session_state.daily_gold_rate = saved["gold_22k"]
+    st.session_state.daily_gold_18k_rate = saved["gold_18k"]
+    st.session_state.daily_silver_rate = saved["silver"]
+    st.session_state.rates_loaded = True
 
 if "c_name" not in st.session_state:
     st.session_state.c_name = ""
@@ -372,11 +407,11 @@ def render_mobile_print_button(pdf_base64, doc_no):
 # --- HEADER ---
 st.title("💎 SOVAA JEWELLERS - System")
 
-# --- DAILY MARKET RATES PANEL (22K, 18K & Silver) ---
+# --- DAILY MARKET RATES PANEL (PERMANENT STORAGE) ---
 with st.expander("📈 **Today's Market Rates (Aaj ka Gold & Silver Bhav)**", expanded=True):
     r_col1, r_col2, r_col3 = st.columns(3)
     with r_col1:
-        st.session_state.daily_gold_rate = st.number_input(
+        new_g22 = st.number_input(
             "🪙 22K Gold Rate (Per 10g) ₹", 
             min_value=0.0, 
             step=100.0, 
@@ -384,7 +419,7 @@ with st.expander("📈 **Today's Market Rates (Aaj ka Gold & Silver Bhav)**", ex
             value=float(st.session_state.daily_gold_rate)
         )
     with r_col2:
-        st.session_state.daily_gold_18k_rate = st.number_input(
+        new_g18 = st.number_input(
             "🪙 18K Gold Rate (Per 10g) ₹", 
             min_value=0.0, 
             step=100.0, 
@@ -392,14 +427,25 @@ with st.expander("📈 **Today's Market Rates (Aaj ka Gold & Silver Bhav)**", ex
             value=float(st.session_state.daily_gold_18k_rate)
         )
     with r_col3:
-        st.session_state.daily_silver_rate = st.number_input(
+        new_sil = st.number_input(
             "🥈 Silver Rate (Per 10g) ₹", 
             min_value=0.0, 
             step=10.0, 
             format="%.2f", 
             value=float(st.session_state.daily_silver_rate)
         )
-    st.caption("💡 Subah ek baar rate daal dein, pure din ke sabhi items me wahi rate automatically aa jayega.")
+    
+    btn_s_col1, btn_s_col2 = st.columns([1.5, 3.5])
+    with btn_s_col1:
+        if st.button("💾 Save Rates (Bhav Save Karein)", use_container_width=True):
+            st.session_state.daily_gold_rate = new_g22
+            st.session_state.daily_gold_18k_rate = new_g18
+            st.session_state.daily_silver_rate = new_sil
+            save_rates_to_file(new_g22, new_g18, new_sil)
+            st.success("✅ Rates permanently save ho gaye!")
+            st.rerun()
+    with btn_s_col2:
+        st.caption("💡 Rate badal kar 'Save Rates' par click karein. Yeh permanently save rahega aur page refresh hone par bhi nahi badlega.")
 
 tab_billing, tab_search = st.tabs(["📝 New Bill / Estimate", "🔍 Search Customer / History"])
 
@@ -472,22 +518,20 @@ with tab_billing:
 
     purity_options = ["22K (916)", "18K (750)", "SILVER", "24K (999)"]
     default_purity_idx = 0
-    auto_rate_val = st.session_state.daily_gold_rate
 
     if "SILVER" in selected_preset:
         default_purity_idx = 2
-        auto_rate_val = st.session_state.daily_silver_rate
     elif "GOLD" in selected_preset:
         default_purity_idx = 0
-        auto_rate_val = st.session_state.daily_gold_rate
 
-    # Quick helper for Purity selection change
     purity_choice = st.selectbox("Purity", purity_options, index=default_purity_idx, key="purity_selector")
+    
+    # Auto Rate selection based on saved rates
     if purity_choice == "18K (750)":
         auto_rate_val = st.session_state.daily_gold_18k_rate
     elif purity_choice == "SILVER":
         auto_rate_val = st.session_state.daily_silver_rate
-    elif purity_choice == "22K (916)":
+    else:
         auto_rate_val = st.session_state.daily_gold_rate
 
     with st.form("item_entry_form", clear_on_submit=True):
