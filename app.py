@@ -135,7 +135,7 @@ def save_to_database(row_dict, doc_type):
 
 def sync_to_google_sheet(payload):
     try:
-        res = requests.post(GOOGLE_SCRIPT_URL, json=payload, headers={"Content-Type": "application/json"}, timeout=20)
+        res = requests.post(GOOGLE_SCRIPT_URL, json=payload, headers={"Content-Type": "application/json"}, timeout=12)
         if res.status_code == 200:
             d = res.json()
             if d.get("status") == "success":
@@ -146,22 +146,29 @@ def sync_to_google_sheet(payload):
         return False, None, str(e)
 
 def generate_a5_pdf(doc_type, meta_info, items, pdf_path):
-    doc = SimpleDocTemplate(pdf_path, pagesize=A5, leftMargin=6*mm, rightMargin=6*mm, topMargin=1.2*inch, bottomMargin=4*mm)
+    doc = SimpleDocTemplate(
+        pdf_path,
+        pagesize=A5,
+        leftMargin=6*mm,
+        rightMargin=6*mm,
+        topMargin=1.1*inch,
+        bottomMargin=3*mm
+    )
     story = []
     st_norm = getSampleStyleSheet()['Normal']
 
-    t_style = ParagraphStyle('T', parent=st_norm, fontName='Helvetica-Bold', fontSize=10, leading=12, alignment=1)
-    c_txt = ParagraphStyle('C', parent=st_norm, fontName='Helvetica', fontSize=6.2, leading=7.5)
-    c_bld = ParagraphStyle('CB', parent=st_norm, fontName='Helvetica-Bold', fontSize=6.2, leading=7.5)
-    c_hdr = ParagraphStyle('CH', parent=st_norm, fontName='Helvetica-Bold', fontSize=6.2, leading=7.5, alignment=1)
-    c_rt = ParagraphStyle('CR', parent=st_norm, fontName='Helvetica', fontSize=6.2, leading=7.5, alignment=2)
-    c_rt_b = ParagraphStyle('CRB', parent=st_norm, fontName='Helvetica-Bold', fontSize=6.2, leading=7.5, alignment=2)
-    t_terms = ParagraphStyle('TT', parent=st_norm, fontName='Helvetica', fontSize=5.0, leading=6.2)
-    s_style = ParagraphStyle('SS', parent=st_norm, fontName='Helvetica-Bold', fontSize=5.5, leading=7.0)
+    t_style = ParagraphStyle('T', parent=st_norm, fontName='Helvetica-Bold', fontSize=9.5, leading=11, alignment=1)
+    c_txt = ParagraphStyle('C', parent=st_norm, fontName='Helvetica', fontSize=5.8, leading=7.0)
+    c_bld = ParagraphStyle('CB', parent=st_norm, fontName='Helvetica-Bold', fontSize=5.8, leading=7.0)
+    c_hdr = ParagraphStyle('CH', parent=st_norm, fontName='Helvetica-Bold', fontSize=5.8, leading=7.0, alignment=1)
+    c_rt = ParagraphStyle('CR', parent=st_norm, fontName='Helvetica', fontSize=5.8, leading=7.0, alignment=2)
+    c_rt_b = ParagraphStyle('CRB', parent=st_norm, fontName='Helvetica-Bold', fontSize=5.8, leading=7.0, alignment=2)
+    t_terms = ParagraphStyle('TT', parent=st_norm, fontName='Helvetica', fontSize=4.6, leading=5.8)
+    s_style = ParagraphStyle('SS', parent=st_norm, fontName='Helvetica-Bold', fontSize=5.2, leading=6.5)
 
     is_gst = (doc_type == "Tax Invoice (GST)")
     story.append(Paragraph("<u>TAX INVOICE</u>" if is_gst else "<u>ESTIMATE</u>", t_style))
-    story.append(Spacer(1, 1.2*mm))
+    story.append(Spacer(1, 1*mm))
 
     c_mob = meta_info['customer_mob'] or "NA"
     c_pan = meta_info.get('customer_pan') or "NA"
@@ -186,9 +193,9 @@ def generate_a5_pdf(doc_type, meta_info, items, pdf_path):
         ]
 
     m_tbl = Table(meta_data, colWidths=[68*mm, 68*mm])
-    m_tbl.setStyle(TableStyle([('BOX', (0,0), (-1,-1), 0.5, colors.HexColor('#444')), ('VALIGN', (0,0), (-1,-1), 'MIDDLE'), ('TOPPADDING', (0,0), (-1,-1), 0.8), ('BOTTOMPADDING', (0,0), (-1,-1), 0.8)]))
+    m_tbl.setStyle(TableStyle([('BOX', (0,0), (-1,-1), 0.5, colors.HexColor('#444')), ('VALIGN', (0,0), (-1,-1), 'MIDDLE'), ('TOPPADDING', (0,0), (-1,-1), 0.6), ('BOTTOMPADDING', (0,0), (-1,-1), 0.6)]))
     story.append(m_tbl)
-    story.append(Spacer(1, 1.2*mm))
+    story.append(Spacer(1, 1*mm))
 
     if is_gst:
         item_rows = [[Paragraph("Sr", c_hdr), Paragraph("Description & HUID", c_hdr), Paragraph("Gross Wt", c_hdr), Paragraph("Net Wt", c_hdr), Paragraph("HSN", c_hdr), Paragraph("Purity", c_hdr), Paragraph("Rate/10g", c_hdr), Paragraph("Making", c_hdr), Paragraph("Total", c_hdr)]]
@@ -200,16 +207,16 @@ def generate_a5_pdf(doc_type, meta_info, items, pdf_path):
     for idx, itm in enumerate(items, 1):
         d_txt = f"<b>{itm['desc']}</b>"
         if itm.get('huid') and itm['huid'] != "NA":
-            d_txt += f"<br/><font size='5.2' color='#444'>HUID: {itm['huid']}</font>"
+            d_txt += f"<br/><font size='4.8' color='#444'>HUID: {itm['huid']}</font>"
         if is_gst:
             item_rows.append([Paragraph(str(idx), c_txt), Paragraph(d_txt, c_txt), Paragraph(f"{itm['gross_wt']:.2f}g", c_txt), Paragraph(f"{itm['net_wt']:.2f}g", c_txt), Paragraph(str(itm['hsn']), c_txt), Paragraph(str(itm['purity']), c_txt), Paragraph(f"Rs.{itm['rate']:,.2f}", c_txt), Paragraph(str(itm['making_display']), c_txt), Paragraph(f"Rs.{itm['total']:,.2f}", c_txt)])
         else:
             item_rows.append([Paragraph(str(idx), c_txt), Paragraph(d_txt, c_txt), Paragraph(f"{itm['gross_wt']:.2f}g", c_txt), Paragraph(f"{itm['net_wt']:.2f}g", c_txt), Paragraph(str(itm['purity']), c_txt), Paragraph(f"Rs.{itm['rate']:,.2f}", c_txt), Paragraph(str(itm['making_display']), c_txt), Paragraph(f"Rs.{itm['total']:,.2f}", c_txt)])
 
     i_tbl = Table(item_rows, colWidths=c_w)
-    i_tbl.setStyle(TableStyle([('BACKGROUND', (0,0), (-1,0), colors.HexColor('#eee')), ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#555')), ('ALIGN', (0,0), (-1,-1), 'CENTER'), ('VALIGN', (0,0), (-1,-1), 'MIDDLE'), ('TOPPADDING', (0,0), (-1,-1), 1.2), ('BOTTOMPADDING', (0,0), (-1,-1), 1.2)]))
+    i_tbl.setStyle(TableStyle([('BACKGROUND', (0,0), (-1,0), colors.HexColor('#eee')), ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#555')), ('ALIGN', (0,0), (-1,-1), 'CENTER'), ('VALIGN', (0,0), (-1,-1), 'MIDDLE'), ('TOPPADDING', (0,0), (-1,-1), 1.0), ('BOTTOMPADDING', (0,0), (-1,-1), 1.0)]))
     story.append(i_tbl)
-    story.append(Spacer(1, max(4*mm, (3-len(items))*4.5*mm)))
+    story.append(Spacer(1, 2*mm))
 
     l_blk = Paragraph("<b>Terms & Conditions:</b><br/>1. Gold purity certified as per BIS guidelines.<br/>2. Breakage responsibility ceases once delivered.<br/>3. Making charges & GST are non-refundable.<br/>4. Old metal exchange confirms lawful property.<br/>5. Disputes subject to Jamshedpur jurisdiction.", t_terms)
     old_ex = meta_info.get('old_exchange', 0.0)
@@ -235,16 +242,16 @@ def generate_a5_pdf(doc_type, meta_info, items, pdf_path):
         s_rows.append(["", Paragraph(f"<b>{lbl_fin}:</b>", c_bld), Paragraph(f"<b>Rs.{meta_info['net_payable']:,.2f}</b>", c_rt_b)])
 
     sum_tbl = Table(s_rows, colWidths=[68*mm, 36*mm, 32*mm])
-    sum_tbl.setStyle(TableStyle([('SPAN', (0,0), (0, len(s_rows)-1)), ('VALIGN', (0,0), (-1,-1), 'TOP'), ('BOX', (1,0), (-1,-1), 0.5, colors.HexColor('#444')), ('INNERGRID', (1,0), (-1,-1), 0.4, colors.HexColor('#777')), ('TOPPADDING', (0,0), (-1,-1), 0.8), ('BOTTOMPADDING', (0,0), (-1,-1), 0.8)]))
+    sum_tbl.setStyle(TableStyle([('SPAN', (0,0), (0, len(s_rows)-1)), ('VALIGN', (0,0), (-1,-1), 'TOP'), ('BOX', (1,0), (-1,-1), 0.5, colors.HexColor('#444')), ('INNERGRID', (1,0), (-1,-1), 0.4, colors.HexColor('#777')), ('TOPPADDING', (0,0), (-1,-1), 0.6), ('BOTTOMPADDING', (0,0), (-1,-1), 0.6)]))
     story.append(sum_tbl)
-    story.append(Spacer(1, 3.5*mm))
+    story.append(Spacer(1, 2*mm))
 
     sig_data = [[
-        Paragraph("Customer Signature / अंगूठा<br/><br/><br/>______________________<br/><font size='4.5' color='#555'>(Lawful owner of exchange metal)</font>", s_style),
-        Paragraph("For SOVAA JEWELLERS<br/><br/><br/>______________________<br/><font size='4.5' color='#555'>(Authorised Signatory)</font>", s_style)
+        Paragraph("Customer Signature / अंगूठा<br/><br/><br/>______________________<br/><font size='4.2' color='#555'>(Lawful owner of exchange metal)</font>", s_style),
+        Paragraph("For SOVAA JEWELLERS<br/><br/><br/>______________________<br/><font size='4.2' color='#555'>(Authorised Signatory)</font>", s_style)
     ]]
     sig_tbl = Table(sig_data, colWidths=[68*mm, 68*mm])
-    sig_tbl.setStyle(TableStyle([('ALIGN', (0,0), (0,0), 'LEFT'), ('ALIGN', (1,0), (1,0), 'RIGHT'), ('VALIGN', (0,0), (-1,-1), 'TOP'), ('TOPPADDING', (0,0), (-1,-1), 0.5), ('BOTTOMPADDING', (0,0), (-1,-1), 0.5)]))
+    sig_tbl.setStyle(TableStyle([('ALIGN', (0,0), (0,0), 'LEFT'), ('ALIGN', (1,0), (1,0), 'RIGHT'), ('VALIGN', (0,0), (-1,-1), 'TOP'), ('TOPPADDING', (0,0), (-1,-1), 0.3), ('BOTTOMPADDING', (0,0), (-1,-1), 0.3)]))
     story.append(sig_tbl)
 
     doc.build(story)
@@ -390,7 +397,10 @@ with tab_bill:
             else:
                 st.warning("Kripya Item Description, Net Weight aur Rate bharein.")
 
-    if st.session_state.items_list:
+    # Bill Summary & Generate Section
+    if not st.session_state.items_list:
+        st.info("💡 Bill banane ke liye upar Item Description aur Wazan daal kar **'➕ Add Item'** par click karein.")
+    else:
         df_i = pd.DataFrame(st.session_state.items_list)
         cols_show = ["desc", "huid", "gross_wt", "net_wt", "purity", "rate", "making_display", "total"]
         if mode == "Tax Invoice (GST)":
@@ -485,5 +495,122 @@ with tab_bill:
                     "round_off": r_off, "net_payable": f_amt, "final_balance_label": b_lbl
                 }
 
-                generate_a5_pdf(mode, m_info, st.session_state.items_list, p_path)
+                # 1. PDF Generation
+                try:
+                    generate_a5_pdf(mode, m_info, st.session_state.items_list, p_path)
+                except Exception as pdf_err:
+                    st.error(f"PDF Banane me dikkat aayi: {str(pdf_err)}")
+                    st.stop()
 
+                with open(p_path, "rb") as f:
+                    p_b64 = base64.b64encode(f.read()).decode('utf-8')
+
+                # 2. Local Excel Backup Save
+                itms_str = ", ".join([f"{it['desc']} (HUID:{it.get('huid','NA')}, {it['net_wt']}g)" for it in st.session_state.items_list])
+                db_r = {
+                    "Document No": doc_number, "Date": f_date, "Customer Name": cust_name,
+                    "Mobile No": str(cust_mob).strip() if cust_mob else "NA", "Address": cust_address,
+                    "Customer Govt ID": cust_id or "NA", "Customer PAN": cust_pan or "NA",
+                    "Party GSTIN": cust_gstin if cust_gstin else "NA", "Payment Mode": pmode_sel,
+                    "Type": mode, "Items": itms_str, "Gross Amount": gross_total,
+                    "Old Exchange": old_val, "Net Payable": f"Refund: Rs.{f_amt:,.2f}" if is_ref else f_amt,
+                    "SGST": sgst, "CGST": cgst
+                }
+                save_to_database(db_r, mode)
+
+                # 3. Google Sheet Sync (Safely Handled)
+                pyld = {
+                    "doc_no": doc_number, "date": f_date, "type": mode,
+                    "customer_name": cust_name, "customer_mob": str(cust_mob).strip() if cust_mob else "NA",
+                    "customer_address": cust_address, "customer_id": cust_id or "NA",
+                    "customer_pan": cust_pan or "NA", "payment_mode": pmode_sel,
+                    "gross": gross_total, "old_exchange": old_val,
+                    "net_payable": -f_amt if is_ref else f_amt,
+                    "cgst": cgst, "sgst": sgst, "pdf_base64": p_b64
+                }
+
+                with st.spinner("☁️ Google Sheet & Drive par save ho raha hai..."):
+                    s_ok, drv_url, err_m = sync_to_google_sheet(pyld)
+
+                # Show Success & Print Button
+                st.success(f"✅ {mode} ({doc_number}) safalta-purvak ban gaya!")
+                if s_ok and drv_url:
+                    st.markdown(f"🔗 [Google Drive par PDF dekhein]({drv_url})")
+
+                render_mobile_print_button(p_b64, doc_number)
+                with open(p_path, "rb") as f:
+                    st.download_button(label=f"📄 Download A5 PDF ({doc_number})", data=f, file_name=p_name, mime="application/pdf", use_container_width=True)
+
+                # Form reset for next bill
+                st.session_state.c_name = ""
+                st.session_state.c_mob = ""
+                st.session_state.c_addr = "MANGO, JAMSHEDPUR"
+                st.session_state.c_id = ""
+                st.session_state.c_pan = ""
+                st.session_state.c_gstin = ""
+                st.session_state.items_list = []
+                st.session_state.form_reset_count += 1
+                st.session_state.active_doc_number = get_next_number(mode)
+
+with tab_srch:
+    st.subheader("🔍 Customer Bill & History Search")
+    st.write("Customer ka **Naam** ya **Mobile No** search karein. Naya bill banane ke liye **'⚡ Auto-Fill in New Bill'** par click karein:")
+
+    recs = []
+    for fn in ["Sales_Database.xlsx", "Estimate_Database.xlsx"]:
+        if os.path.exists(fn):
+            try:
+                tdf = pd.read_excel(fn)
+                if not tdf.empty:
+                    recs.append(tdf)
+            except Exception:
+                pass
+
+    if recs:
+        all_d = pd.concat(recs, ignore_index=True)
+        sq = st.text_input("🔎 Search by Name or Mobile No", placeholder="e.g. RAJU ya 77177...").strip()
+        if sq:
+            m = (all_d["Customer Name"].astype(str).str.contains(sq, case=False, na=False) | all_d["Mobile No"].astype(str).str.contains(sq, case=False, na=False))
+            fdf = all_d[m]
+            if not fdf.empty:
+                st.success(f"🎯 Total **{len(fdf)}** records mile:")
+                for idx, row in fdf.iterrows():
+                    d_n = str(row.get("Document No", ""))
+                    cn_v = str(row.get("Customer Name", ""))
+                    cm_v = str(row.get("Mobile No", ""))
+                    ca_v = str(row.get("Address", "MANGO, JAMSHEDPUR"))
+                    cid_v = str(row.get("Customer Govt ID", "")) if str(row.get("Customer Govt ID", "")) != "NA" else ""
+                    cp_v = str(row.get("Customer PAN", "")) if str(row.get("Customer PAN", "")) != "NA" else ""
+                    cg_v = str(row.get("Party GSTIN", "")) if str(row.get("Party GSTIN", "")) != "NA" else ""
+                    pf = os.path.join(PDF_DIR, f"{d_n.replace('/', '_')}.pdf")
+
+                    with st.container():
+                        r1, r2, r3, r4 = st.columns([2, 2.5, 1.8, 1.2])
+                        with r1:
+                            st.markdown(f"**{d_n}** ({row.get('Type', '')})")
+                            st.caption(f"📅 {row.get('Date', '')}")
+                        with r2:
+                            st.markdown(f"👤 **{cn_v}** | 📞 {cm_v}")
+                            st.caption(f"📦 Items: {row.get('Items', 'NA')}")
+                        with r3:
+                            st.markdown(f"💰 **₹{row.get('Net Payable', 0)}**")
+                            if st.button("⚡ Auto-Fill in New Bill", key=f"s_f_{idx}_{d_n.replace('/', '_')}"):
+                                st.session_state.c_name = cn_v.upper()
+                                st.session_state.c_mob = "" if cm_v == "NA" else cm_v
+                                st.session_state.c_addr = ca_v.upper()
+                                st.session_state.c_id = cid_v.upper()
+                                st.session_state.c_pan = cp_v.upper()
+                                st.session_state.c_gstin = cg_v.upper()
+                                st.session_state.form_reset_count += 1
+                                st.success(f"✅ {cn_v} ki details load ho gayi hain!")
+                        with r4:
+                            if os.path.exists(pf):
+                                with open(pf, "rb") as p_f:
+                                    st.download_button(label="⬇️ PDF", data=p_f, file_name=f"{d_n.replace('/', '_')}.pdf", mime="application/pdf", key=f"s_dl_{idx}_{d_n.replace('/', '_')}")
+                        st.divider()
+            else:
+                st.warning(f"'{sq}' ke naam ya number se koi record nahi mila.")
+        else:
+            st.info("💡 Upar search box mein customer ka naam ya mobile number likhein.")
+    else:
+        st.info("Abhi tak koi transaction record nahi hua hai.")
