@@ -242,6 +242,7 @@ def generate_a5_pdf(doc_type, meta_info, items, pdf_path):
     story.append(meta_table)
     story.append(Spacer(1, 1.2 * mm))
 
+    # Items Table
     if is_gst:
         item_rows = [[
             Paragraph("Sr", cell_header), Paragraph("Description & HUID", cell_header),
@@ -294,6 +295,7 @@ def generate_a5_pdf(doc_type, meta_info, items, pdf_path):
 
     story.append(Spacer(1, dynamic_bottom_gap))
 
+    # Terms Section: Customer Signature & SOVAA Jewellers with exact Half-inch (12.7mm) gap
     left_block = Paragraph(
         "<b>Terms & Conditions:</b><br/>"
         "1. Breakage/stone responsibility ceases once item delivered.<br/>"
