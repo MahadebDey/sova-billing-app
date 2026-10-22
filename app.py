@@ -26,22 +26,21 @@ input[type="text"] {
 </style>
 """, unsafe_allow_html=True)
 
-# Google Apps Script Web App URL
+# Business & Legal Details
+HALLMARK_REG_NO = "HM/C-5800000504"
+FIRM_GSTIN = "20AUJPD1127G1ZE"
+FIRM_PHONE = "7717740697"
 GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwyLXOi4yCglsCueHm_nVQ9wYjPUI0eKsPlxYxYGqFnwIvcML66W5JWfRCwtqj8WuhU/exec"
 
-# --- APP SETUP ---
+# Directory
 PDF_DIR = "Invoices_PDF"
 os.makedirs(PDF_DIR, exist_ok=True)
 
-# --- PERMANENT RATES STORAGE (FILE BASED) ---
+# Rates Storage File
 RATES_FILE = "daily_rates.json"
 
 def load_saved_rates():
-    default_rates = {
-        "gold_22k": 72000.0,
-        "gold_18k": 59000.0,
-        "silver": 880.0
-    }
+    default_vals = {"gold_22k": 72000.0, "gold_18k": 59000.0, "silver": 880.0}
     if os.path.exists(RATES_FILE):
         try:
             with open(RATES_FILE, "r") as f:
@@ -52,28 +51,22 @@ def load_saved_rates():
                     "silver": float(data.get("silver", 880.0))
                 }
         except Exception:
-            return default_rates
-    return default_rates
+            return default_vals
+    return default_vals
 
 def save_rates_to_file(g22, g18, sil):
-    rates_data = {
-        "gold_22k": float(g22),
-        "gold_18k": float(g18),
-        "silver": float(sil)
-    }
     try:
         with open(RATES_FILE, "w") as f:
-            json.dump(rates_data, f)
+            json.dump({"gold_22k": float(g22), "gold_18k": float(g18), "silver": float(sil)}, f)
     except Exception:
         pass
 
-# Initialize session state from permanent file
-if "rates_loaded" not in st.session_state:
-    saved = load_saved_rates()
-    st.session_state.daily_gold_rate = saved["gold_22k"]
-    st.session_state.daily_gold_18k_rate = saved["gold_18k"]
-    st.session_state.daily_silver_rate = saved["silver"]
-    st.session_state.rates_loaded = True
+# Initialize Session States Safely
+if "daily_gold_rate" not in st.session_state:
+    rates = load_saved_rates()
+    st.session_state.daily_gold_rate = rates["gold_22k"]
+    st.session_state.daily_gold_18k_rate = rates["gold_18k"]
+    st.session_state.daily_silver_rate = rates["silver"]
 
 if "c_name" not in st.session_state:
     st.session_state.c_name = ""
@@ -81,6 +74,10 @@ if "c_mob" not in st.session_state:
     st.session_state.c_mob = ""
 if "c_addr" not in st.session_state:
     st.session_state.c_addr = "MANGO, JAMSHEDPUR"
+if "c_id" not in st.session_state:
+    st.session_state.c_id = ""
+if "c_pan" not in st.session_state:
+    st.session_state.c_pan = ""
 if "c_gstin" not in st.session_state:
     st.session_state.c_gstin = ""
 if "items_list" not in st.session_state:
@@ -89,30 +86,12 @@ if "form_reset_count" not in st.session_state:
     st.session_state.form_reset_count = 0
 
 COMMON_ITEMS = [
-    "-- Select Common Item --",
-    "GOLD LOCKET",
-    "SILVER LOCKET",
-    "GOLD NATHIYA",
-    "SILVER BABY BALA",
-    "SILVER BABY PAYAL",
-    "SILVER KI RING",
-    "SILVER BICHHIYA",
-    "GOLD CHAIN",
-    "GOLD RING",
-    "GOLD EARRING / JHUMKA",
-    "GOLD NECKLACE",
-    "GOLD BRACELET",
-    "GOLD BANGLE / BALA",
-    "GOLD NOSE PIN",
-    "GOLD PENDANT",
-    "GOLD COIN",
-    "SILVER PAYAL / PAJEB",
-    "SILVER CHAIN",
-    "SILVER BRACELET",
-    "SILVER COIN",
-    "SILVER UTENSIL / BARTAN",
-    "SILVER MURTI / IDOL",
-    "➕ Custom / Other Item"
+    "-- Select Common Item --", "GOLD LOCKET", "SILVER LOCKET", "GOLD NATHIYA",
+    "SILVER BABY BALA", "SILVER BABY PAYAL", "SILVER KI RING", "SILVER BICHHIYA",
+    "GOLD CHAIN", "GOLD RING", "GOLD EARRING / JHUMKA", "GOLD NECKLACE",
+    "GOLD BRACELET", "GOLD BANGLE / BALA", "GOLD NOSE PIN", "GOLD PENDANT",
+    "GOLD COIN", "SILVER PAYAL / PAJEB", "SILVER CHAIN", "SILVER BRACELET",
+    "SILVER COIN", "SILVER UTENSIL / BARTAN", "SILVER MURTI / IDOL", "➕ Custom / Other Item"
 ]
 
 def get_current_fy_string():
@@ -132,7 +111,7 @@ def get_next_number(doc_type):
     max_val = 0
 
     try:
-        res = requests.get(GOOGLE_SCRIPT_URL, timeout=5)
+        res = requests.get(GOOGLE_SCRIPT_URL, timeout=3)
         if res.status_code == 200:
             cloud_data = res.json()
             if cloud_data.get("status") == "success":
@@ -164,31 +143,27 @@ def get_next_number(doc_type):
 
 def save_to_database(row_dict, doc_type):
     db_file = "Sales_Database.xlsx" if doc_type == "Tax Invoice (GST)" else "Estimate_Database.xlsx"
-    if os.path.exists(db_file):
-        try:
+    try:
+        if os.path.exists(db_file):
             df = pd.read_excel(db_file)
             df = pd.concat([df, pd.DataFrame([row_dict])], ignore_index=True)
-        except Exception:
+        else:
             df = pd.DataFrame([row_dict])
-    else:
-        df = pd.DataFrame([row_dict])
-    df.to_excel(db_file, index=False)
+        df.to_excel(db_file, index=False)
+    except Exception:
+        pass
 
 def sync_to_google_sheet(payload):
     try:
         headers = {"Content-Type": "application/json"}
-        response = requests.post(GOOGLE_SCRIPT_URL, json=payload, headers=headers, timeout=25)
+        response = requests.post(GOOGLE_SCRIPT_URL, json=payload, headers=headers, timeout=12)
         if response.status_code == 200:
-            try:
-                res_data = response.json()
-                if res_data.get("status") == "success":
-                    return True, res_data.get("pdf_url"), "Success"
-                else:
-                    return False, None, res_data.get("message", "Script Error")
-            except Exception:
-                return False, None, f"Invalid JSON response: {response.text}"
-        else:
-            return False, None, f"HTTP Error: {response.status_code}"
+            res_data = response.json()
+            if res_data.get("status") == "success":
+                return True, res_data.get("pdf_url"), "Success"
+            else:
+                return False, None, res_data.get("message", "Script Error")
+        return False, None, f"HTTP Error: {response.status_code}"
     except Exception as e:
         return False, None, f"Network Error: {str(e)}"
 
@@ -198,77 +173,87 @@ def generate_a5_pdf(doc_type, meta_info, items, pdf_path):
         pagesize=A5,
         leftMargin=6 * mm,
         rightMargin=6 * mm,
-        topMargin=1.2 * inch,
-        bottomMargin=5 * mm
+        topMargin=1.1 * inch,
+        bottomMargin=3 * mm
     )
     story = []
     styles = getSampleStyleSheet()
-    
+
     title_style = ParagraphStyle(
         'DocTitle', parent=styles['Normal'],
-        fontName='Helvetica-Bold', fontSize=10, leading=12, alignment=1, textColor=colors.HexColor('#222222')
+        fontName='Helvetica-Bold', fontSize=9.5, leading=11, alignment=1, textColor=colors.HexColor('#222222')
     )
-    cell_style = ParagraphStyle('CellText', parent=styles['Normal'], fontName='Helvetica', fontSize=6.5, leading=8, textColor=colors.HexColor('#222222'))
-    cell_bold = ParagraphStyle('CellBold', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=6.5, leading=8, textColor=colors.HexColor('#111111'))
-    cell_header = ParagraphStyle('CellHeader', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=6.5, leading=8, textColor=colors.HexColor('#111111'), alignment=1)
-    cell_right = ParagraphStyle('CellRight', parent=styles['Normal'], fontName='Helvetica', fontSize=6.5, leading=8, textColor=colors.HexColor('#222222'), alignment=2)
-    cell_right_bold = ParagraphStyle('CellRightBold', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=6.5, leading=8, textColor=colors.HexColor('#111111'), alignment=2)
+    cell_style = ParagraphStyle('CellText', parent=styles['Normal'], fontName='Helvetica', fontSize=5.8, leading=7.0, textColor=colors.HexColor('#222222'))
+    cell_bold = ParagraphStyle('CellBold', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=5.8, leading=7.0, textColor=colors.HexColor('#111111'))
+    cell_header = ParagraphStyle('CellHeader', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=5.8, leading=7.0, textColor=colors.HexColor('#111111'), alignment=1)
+    cell_right = ParagraphStyle('CellRight', parent=styles['Normal'], fontName='Helvetica', fontSize=5.8, leading=7.0, textColor=colors.HexColor('#222222'), alignment=2)
+    cell_right_bold = ParagraphStyle('CellRightBold', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=5.8, leading=7.0, textColor=colors.HexColor('#111111'), alignment=2)
+    terms_style = ParagraphStyle('TermsText', parent=styles['Normal'], fontName='Helvetica', fontSize=4.6, leading=5.8, textColor=colors.HexColor('#333333'))
+    sign_style = ParagraphStyle('SignText', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=5.2, leading=6.5, textColor=colors.HexColor('#111111'))
 
     is_gst = (doc_type == "Tax Invoice (GST)")
     title_text = "<u>TAX INVOICE</u>" if is_gst else "<u>ESTIMATE</u>"
     story.append(Paragraph(title_text, title_style))
-    story.append(Spacer(1, 1.5 * mm))
+    story.append(Spacer(1, 1 * mm))
 
     cust_mob_display = meta_info['customer_mob'] if meta_info['customer_mob'] else "NA"
+    cust_pan_display = meta_info.get('customer_pan') if meta_info.get('customer_pan') else "NA"
+    cust_id_display = meta_info.get('customer_id') if meta_info.get('customer_id') else "NA"
 
     if is_gst:
         meta_data = [
-            [Paragraph(f"<b>Date:</b> {meta_info['date']}", cell_style), Paragraph("<b>GSTIN:</b> 20AUJPD1127G1ZE", cell_style)],
-            [Paragraph(f"<b>Invoice No:</b> {meta_info['doc_no']}", cell_style), Paragraph("<b>Mobile No:</b> 7717740697", cell_style)],
-            [Paragraph(f"<b>Customer Name:</b> {meta_info['customer_name']}", cell_style), Paragraph("<b>GST Type:</b> CGST + SGST (1.5% Each)", cell_style)],
-            [Paragraph(f"<b>Customer Mob:</b> {cust_mob_display}", cell_style), Paragraph("<b>State & Code:</b> 20 - JHARKHAND", cell_style)],
+            [Paragraph(f"<b>Date:</b> {meta_info['date']}", cell_style), Paragraph(f"<b>GSTIN:</b> {FIRM_GSTIN}", cell_style)],
+            [Paragraph(f"<b>Invoice No:</b> {meta_info['doc_no']}", cell_style), Paragraph(f"<b>Hallmark Reg:</b> {HALLMARK_REG_NO}", cell_style)],
+            [Paragraph(f"<b>Customer Name:</b> {meta_info['customer_name']}", cell_style), Paragraph(f"<b>Payment Mode:</b> {meta_info.get('payment_mode', 'UPI / Cash')}", cell_style)],
+            [Paragraph(f"<b>Customer Mob:</b> {cust_mob_display}", cell_style), Paragraph(f"<b>Govt ID / Aadhaar:</b> {cust_id_display}", cell_style)],
+            [Paragraph(f"<b>Customer PAN:</b> {cust_pan_display}", cell_style), Paragraph("<b>State & Code:</b> 20 - JHARKHAND", cell_style)],
             [Paragraph(f"<b>Address:</b> {meta_info['customer_address']}", cell_style), Paragraph(f"<b>Party GSTIN:</b> {meta_info['customer_gstin'] or 'NA'}", cell_style)]
         ]
     else:
         meta_data = [
-            [Paragraph(f"<b>Date:</b> {meta_info['date']}", cell_style), Paragraph("<b>Mobile No:</b> 7717740697", cell_style)],
-            [Paragraph(f"<b>Estimate No:</b> {meta_info['doc_no']}", cell_style), Paragraph("<b>State:</b> JHARKHAND", cell_style)],
+            [Paragraph(f"<b>Date:</b> {meta_info['date']}", cell_style), Paragraph(f"<b>Hallmark Reg:</b> {HALLMARK_REG_NO}", cell_style)],
+            [Paragraph(f"<b>Estimate No:</b> {meta_info['doc_no']}", cell_style), Paragraph(f"<b>Payment Mode:</b> {meta_info.get('payment_mode', 'UPI / Cash')}", cell_style)],
             [Paragraph(f"<b>Customer Name:</b> {meta_info['customer_name']}", cell_style), Paragraph(f"<b>Customer Mob:</b> {cust_mob_display}", cell_style)],
-            [Paragraph(f"<b>Address:</b> {meta_info['customer_address']}", cell_style), Paragraph("", cell_style)]
+            [Paragraph(f"<b>Govt ID / Aadhaar:</b> {cust_id_display}", cell_style), Paragraph(f"<b>Customer PAN:</b> {cust_pan_display}", cell_style)],
+            [Paragraph(f"<b>Address:</b> {meta_info['customer_address']}", cell_style), Paragraph("<b>State:</b> JHARKHAND", cell_style)]
         ]
 
     meta_table = Table(meta_data, colWidths=[68 * mm, 68 * mm])
     meta_table.setStyle(TableStyle([
         ('BOX', (0,0), (-1,-1), 0.5, colors.HexColor('#444444')),
         ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-        ('TOPPADDING', (0,0), (-1,-1), 1.0),
-        ('BOTTOMPADDING', (0,0), (-1,-1), 1.0),
+        ('TOPPADDING', (0,0), (-1,-1), 0.6),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 0.6),
     ]))
     story.append(meta_table)
-    story.append(Spacer(1, 1.5 * mm))
+    story.append(Spacer(1, 1 * mm))
 
     if is_gst:
         item_rows = [[
-            Paragraph("Sr", cell_header), Paragraph("Description", cell_header),
+            Paragraph("Sr", cell_header), Paragraph("Description & HUID", cell_header),
             Paragraph("Gross Wt", cell_header), Paragraph("Net Wt", cell_header),
             Paragraph("HSN", cell_header), Paragraph("Purity", cell_header),
             Paragraph("Rate/10g", cell_header), Paragraph("Making", cell_header),
             Paragraph("Total", cell_header)
         ]]
-        col_widths = [6 * mm, 30 * mm, 14 * mm, 14 * mm, 10 * mm, 14 * mm, 18 * mm, 14 * mm, 16 * mm]
+        col_widths = [6 * mm, 32 * mm, 13 * mm, 13 * mm, 10 * mm, 14 * mm, 18 * mm, 13 * mm, 17 * mm]
     else:
         item_rows = [[
-            Paragraph("Sr", cell_header), Paragraph("Description", cell_header),
+            Paragraph("Sr", cell_header), Paragraph("Description & HUID", cell_header),
             Paragraph("Gross Wt", cell_header), Paragraph("Net Wt", cell_header),
             Paragraph("Purity", cell_header), Paragraph("Rate/10g", cell_header),
             Paragraph("Making", cell_header), Paragraph("Total Amount", cell_header)
         ]]
-        col_widths = [6 * mm, 35 * mm, 15 * mm, 15 * mm, 15 * mm, 19 * mm, 14 * mm, 17 * mm]
+        col_widths = [6 * mm, 36 * mm, 15 * mm, 15 * mm, 15 * mm, 19 * mm, 13 * mm, 17 * mm]
 
     for idx, itm in enumerate(items, 1):
+        desc_huid_text = f"<b>{itm['desc']}</b>"
+        if itm.get('huid') and itm['huid'] != "NA":
+            desc_huid_text += f"<br/><font size='4.8' color='#444444'>HUID: {itm['huid']}</font>"
+
         if is_gst:
             item_rows.append([
-                Paragraph(str(idx), cell_style), Paragraph(str(itm['desc']).upper(), cell_style),
+                Paragraph(str(idx), cell_style), Paragraph(desc_huid_text, cell_style),
                 Paragraph(f"{itm['gross_wt']:.2f} g", cell_style), Paragraph(f"{itm['net_wt']:.2f} g", cell_style),
                 Paragraph(str(itm['hsn']), cell_style), Paragraph(str(itm['purity']), cell_style),
                 Paragraph(f"Rs. {itm['rate']:,.2f}", cell_style), Paragraph(str(itm['making_display']), cell_style),
@@ -276,7 +261,7 @@ def generate_a5_pdf(doc_type, meta_info, items, pdf_path):
             ])
         else:
             item_rows.append([
-                Paragraph(str(idx), cell_style), Paragraph(str(itm['desc']).upper(), cell_style),
+                Paragraph(str(idx), cell_style), Paragraph(desc_huid_text, cell_style),
                 Paragraph(f"{itm['gross_wt']:.2f} g", cell_style), Paragraph(f"{itm['net_wt']:.2f} g", cell_style),
                 Paragraph(str(itm['purity']), cell_style), Paragraph(f"Rs. {itm['rate']:,.2f}", cell_style),
                 Paragraph(str(itm['making_display']), cell_style), Paragraph(f"Rs. {itm['total']:,.2f}", cell_style)
@@ -288,24 +273,23 @@ def generate_a5_pdf(doc_type, meta_info, items, pdf_path):
         ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#555555')),
         ('ALIGN', (0,0), (-1,-1), 'CENTER'),
         ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-        ('TOPPADDING', (0,0), (-1,-1), 1.6),
-        ('BOTTOMPADDING', (0,0), (-1,-1), 1.6),
+        ('TOPPADDING', (0,0), (-1,-1), 1.0),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 1.0),
     ]))
     story.append(item_table)
+    story.append(Spacer(1, 2 * mm))
 
-    dynamic_blank_space = max(10 * mm, (5 - len(items)) * 6.5 * mm)
-    story.append(Spacer(1, dynamic_blank_space))
-
-    cond_line = "1. We are not responsible for any breakage/damage.<br/>" if is_gst else "1. Estimation only. Rates subject to daily market change.<br/>"
+    # Terms Section
     left_block = Paragraph(
         "<b>Terms & Conditions:</b><br/>"
-        f"{cond_line}"
-        "2. All disputes subject to Jamshedpur jurisdiction.<br/><br/>"
-        "<b>For SOVAA JEWELLERS</b><br/><br/><br/>"
-        "(Authorised Signatory)",
-        cell_style
+        "1. Gold purity certified as per BIS Hallmarking guidelines.<br/>"
+        "2. Breakage/stone responsibility ceases once item delivered.<br/>"
+        "3. Making charges & GST are strictly non-refundable.<br/>"
+        "4. Old metal exchange confirms lawful self-acquired property.<br/>"
+        "5. Disputes subject to Jamshedpur jurisdiction only.",
+        terms_style
     )
-    
+
     old_exchange = meta_info.get('old_exchange', 0.0)
     exchange_label = meta_info.get('exchange_label', 'Less Old Exchange')
     final_balance_label = meta_info.get('final_balance_label', 'Net Payable')
@@ -319,7 +303,6 @@ def generate_a5_pdf(doc_type, meta_info, items, pdf_path):
         ]
         if old_exchange > 0:
             summary_rows.append(["", Paragraph(f"<b>{exchange_label}:</b>", cell_style), Paragraph(f"- Rs. {old_exchange:,.2f}", cell_right)])
-        
         summary_rows.append(["", Paragraph("<b>Round Off:</b>", cell_style), Paragraph(f"Rs. {meta_info['round_off']:+.2f}", cell_right)])
         summary_rows.append(["", Paragraph(f"<b>{final_balance_label}:</b>", cell_bold), Paragraph(f"<b>Rs. {meta_info['net_payable']:,.2f}</b>", cell_right_bold)])
     else:
@@ -328,7 +311,6 @@ def generate_a5_pdf(doc_type, meta_info, items, pdf_path):
         ]
         if old_exchange > 0:
             summary_rows.append(["", Paragraph(f"<b>{exchange_label}:</b>", cell_style), Paragraph(f"- Rs. {old_exchange:,.2f}", cell_right)])
-        
         summary_rows.append(["", Paragraph("<b>Round Off:</b>", cell_style), Paragraph(f"Rs. {meta_info['round_off']:+.2f}", cell_right)])
         summary_rows.append(["", Paragraph(f"<b>{final_balance_label}:</b>", cell_bold), Paragraph(f"<b>Rs. {meta_info['net_payable']:,.2f}</b>", cell_right_bold)])
 
@@ -338,77 +320,41 @@ def generate_a5_pdf(doc_type, meta_info, items, pdf_path):
         ('VALIGN', (0,0), (-1,-1), 'TOP'),
         ('BOX', (1,0), (-1,-1), 0.5, colors.HexColor('#444444')),
         ('INNERGRID', (1,0), (-1,-1), 0.4, colors.HexColor('#777777')),
-        ('TOPPADDING', (0,0), (-1,-1), 1.0),
-        ('BOTTOMPADDING', (0,0), (-1,-1), 1.0),
+        ('TOPPADDING', (0,0), (-1,-1), 0.6),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 0.6),
     ]))
     story.append(summary_table)
+    story.append(Spacer(1, 2.5 * mm))
+
+    # Dual Signature Layout (Left: Customer Signature, Right: SOVAA Jewellers Signature)
+    sig_data = [
+        [
+            Paragraph("Customer Signature / अंगूठा<br/><br/><br/>______________________<br/><font size='4.2' color='#555555'>(Lawful owner of exchange metal)</font>", sign_style),
+            Paragraph("For SOVAA JEWELLERS<br/><br/><br/>______________________<br/><font size='4.2' color='#555555'>(Authorised Signatory)</font>", sign_style)
+        ]
+    ]
+    sig_table = Table(sig_data, colWidths=[68 * mm, 68 * mm])
+    sig_table.setStyle(TableStyle([
+        ('ALIGN', (0,0), (0,0), 'LEFT'),
+        ('ALIGN', (1,0), (1,0), 'RIGHT'),
+        ('VALIGN', (0,0), (-1,-1), 'TOP'),
+        ('TOPPADDING', (0,0), (-1,-1), 0.3),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 0.3),
+    ]))
+    story.append(sig_table)
 
     doc.build(story)
 
 def render_mobile_print_button(pdf_base64, doc_no):
-    print_code = f"""
-    <html>
-    <head>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <style>
-      @media print {{
-        html, body {{
-          filter: grayscale(100%) !important;
-          -webkit-filter: grayscale(100%) !important;
-          color: #000000 !important;
-        }}
-      }}
-      .print-btn {{
-        background-color: #222222;
-        color: white;
-        padding: 12px 20px;
-        font-size: 16px;
-        font-weight: bold;
-        border: none;
-        border-radius: 8px;
-        cursor: pointer;
-        width: 100%;
-        text-align: center;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-      }}
-      .print-btn:active {{
-        background-color: #000000;
-      }}
-    </style>
-    </head>
-    <body style="margin:0; padding:4px 0;">
-      <button class="print-btn" onclick="printInvoice()">🖨️ Quick Print ({doc_no}) to Epson L3350</button>
-      <script>
-        function printInvoice() {{
-          const base64Data = '{pdf_base64}';
-          const byteCharacters = atob(base64Data);
-          const byteNumbers = new Array(byteCharacters.length);
-          for (let i = 0; i < byteCharacters.length; i++) {{
-              byteNumbers[i] = byteCharacters.charCodeAt(i);
-          }}
-          const byteArray = new Uint8Array(byteNumbers);
-          const file = new Blob([byteArray], {{type: 'application/pdf'}});
-          const fileURL = URL.createObjectURL(file);
-          
-          const printWindow = window.open(fileURL);
-          if (printWindow) {{
-              printWindow.focus();
-              printWindow.print();
-          }} else {{
-              window.location.href = fileURL;
-          }}
-        }}
-      </script>
-    </body>
-    </html>
-    """
-    components.html(print_code, height=60)
+    html = f"""<div style="margin:4px 0;"><button style="background:#222;color:#fff;padding:12px;font-size:16px;font-weight:bold;border:none;border-radius:8px;width:100%;cursor:pointer;" onclick="pDoc()">🖨️ Quick Print ({doc_no}) to Epson L3350</button><script>function pDoc(){{var b='{pdf_base64}';var c=atob(b);var n=new Array(c.length);for(var i=0;i<c.length;i++){{n[i]=c.charCodeAt(i);}}var blob=new Blob([new Uint8Array(n)],{{type:'application/pdf'}});var u=URL.createObjectURL(blob);var w=window.open(u);if(w){{w.focus();w.print();}}else{{window.location.href=u;}}}}</script></div>"""
+    components.html(html, height=60)
 
-# --- HEADER ---
-st.title("💎 SOVAA JEWELLERS - System")
+# --- HEADER SECTION ---
+st.title("💎 SOVAA JEWELLERS")
+st.write(f"**Hallmark Reg No:** `{HALLMARK_REG_NO}` | **GSTIN:** `{FIRM_GSTIN}`")
 
-# --- DAILY MARKET RATES PANEL (PERMANENT STORAGE) ---
-with st.expander("📈 **Today's Market Rates (Aaj ka Gold & Silver Bhav)**", expanded=True):
+# --- DAILY MARKET RATES PANEL ---
+with st.expander("📈 **Today's Market Rates (Aaj ka Gold & Silver Bhav)**", expanded=False):
     r_col1, r_col2, r_col3 = st.columns(3)
     with r_col1:
         new_g22 = st.number_input(
@@ -435,17 +381,13 @@ with st.expander("📈 **Today's Market Rates (Aaj ka Gold & Silver Bhav)**", ex
             value=float(st.session_state.daily_silver_rate)
         )
     
-    btn_s_col1, btn_s_col2 = st.columns([1.5, 3.5])
-    with btn_s_col1:
-        if st.button("💾 Save Rates (Bhav Save Karein)", use_container_width=True):
-            st.session_state.daily_gold_rate = new_g22
-            st.session_state.daily_gold_18k_rate = new_g18
-            st.session_state.daily_silver_rate = new_sil
-            save_rates_to_file(new_g22, new_g18, new_sil)
-            st.success("✅ Rates permanently save ho gaye!")
-            st.rerun()
-    with btn_s_col2:
-        st.caption("💡 Rate badal kar 'Save Rates' par click karein. Yeh permanently save rahega aur page refresh hone par bhi nahi badlega.")
+    if st.button("💾 Save Rates (Bhav Save Karein)"):
+        st.session_state.daily_gold_rate = new_g22
+        st.session_state.daily_gold_18k_rate = new_g18
+        st.session_state.daily_silver_rate = new_sil
+        save_rates_to_file(new_g22, new_g18, new_sil)
+        st.success("✅ Rates save ho gaye!")
+        st.rerun()
 
 tab_billing, tab_search = st.tabs(["📝 New Bill / Estimate", "🔍 Search Customer / History"])
 
@@ -472,6 +414,8 @@ with tab_billing:
             st.session_state.c_name = ""
             st.session_state.c_mob = ""
             st.session_state.c_addr = "MANGO, JAMSHEDPUR"
+            st.session_state.c_id = ""
+            st.session_state.c_pan = ""
             st.session_state.c_gstin = ""
             st.session_state.items_list = []
             st.session_state.form_reset_count += 1
@@ -493,15 +437,18 @@ with tab_billing:
         with nc2:
             st.write("")
             st.write("")
-            if st.button("🔄 Auto", help="Latest cloud serial number fetch karein"):
+            if st.button("🔄 Auto", help="Latest serial number fetch karein"):
                 st.session_state.active_doc_number = get_next_number(mode)
                 st.rerun()
                 
         cust_name_in = st.text_input("Customer Name", value=st.session_state.c_name, key=f"cname_{r_key}", placeholder="e.g. SOMNATH DAS")
         cust_address_in = st.text_input("Address", value=st.session_state.c_addr, key=f"caddr_{r_key}")
+        cust_id_in = st.text_input("Aadhaar / Voter ID (Exchange ke liye anivarya)", value=st.session_state.c_id, key=f"cid_{r_key}", placeholder="e.g. Aadhaar / Voter No")
     with col2:
         doc_date = st.date_input("Date", value=datetime.today(), key=f"cdate_{r_key}")
         cust_mob = st.text_input("Mobile No", value=st.session_state.c_mob, key=f"cmob_{r_key}", placeholder="10 Digit Number")
+        cust_pan_in = st.text_input("Customer PAN (Mandatory if ≥ ₹2 Lakh)", value=st.session_state.c_pan, key=f"cpan_{r_key}", placeholder="e.g. ABCDE1234F")
+        payment_mode_selected = st.selectbox("Payment Mode", ["UPI / QR (PhonePe/GPay)", "Cash", "Bank Transfer / Card", "Multiple Modes"], key=f"pmode_{r_key}")
         if mode == "Tax Invoice (GST)":
             cust_gstin_in = st.text_input("Party GSTIN (Optional)", value=st.session_state.c_gstin, key=f"cgst_{r_key}", placeholder="OPTIONAL")
         else:
@@ -509,6 +456,8 @@ with tab_billing:
 
     cust_name = cust_name_in.strip().upper()
     cust_address = cust_address_in.strip().upper()
+    cust_id = cust_id_in.strip().upper()
+    cust_pan = cust_pan_in.strip().upper()
     cust_gstin = cust_gstin_in.strip().upper()
 
     st.markdown("---")
@@ -524,9 +473,13 @@ with tab_billing:
     elif "GOLD" in selected_preset:
         default_purity_idx = 0
 
-    purity_choice = st.selectbox("Purity", purity_options, index=default_purity_idx, key="purity_selector")
-    
-    # Auto Rate selection based on saved rates
+    p_col1, p_col2 = st.columns([1.5, 2.5])
+    with p_col1:
+        purity_choice = st.selectbox("Purity", purity_options, index=default_purity_idx, key="purity_selector")
+    with p_col2:
+        st.write("")
+        st.caption(f"🛡️ Hallmarking: {purity_choice} under {HALLMARK_REG_NO}")
+
     if purity_choice == "18K (750)":
         auto_rate_val = st.session_state.daily_gold_18k_rate
     elif purity_choice == "SILVER":
@@ -535,7 +488,7 @@ with tab_billing:
         auto_rate_val = st.session_state.daily_gold_rate
 
     with st.form("item_entry_form", clear_on_submit=True):
-        ic1, ic2, ic3, ic4, ic5, ic6 = st.columns([2.5, 1.2, 1.2, 1.4, 1.2, 0.9])
+        ic1, ic2, ic3, ic4, ic5, ic6, ic7 = st.columns([2.2, 1.2, 1.1, 1.1, 1.3, 1.1, 0.8])
         
         default_text = ""
         if selected_preset not in ["-- Select Common Item --", "➕ Custom / Other Item"]:
@@ -544,14 +497,16 @@ with tab_billing:
         with ic1:
             item_desc = st.text_input("Item Description", value=default_text, placeholder="e.g. GOLD LOCKET")
         with ic2:
-            gross_wt = st.number_input("Gross Wt (g)", min_value=0.0, step=0.01, format="%.2f", value=None, placeholder="0.00")
+            item_huid = st.text_input("HUID Code (Optional)", placeholder="e.g. AB1234")
         with ic3:
-            net_wt = st.number_input("Net Wt (g)", min_value=0.0, step=0.01, format="%.2f", value=None, placeholder="0.00")
+            gross_wt = st.number_input("Gross Wt (g)", min_value=0.0, step=0.01, format="%.2f", value=None, placeholder="0.00")
         with ic4:
-            rate_10g = st.number_input("Rate (Per 10g)", min_value=0.0, step=10.0, format="%.2f", value=auto_rate_val)
+            net_wt = st.number_input("Net Wt (g)", min_value=0.0, step=0.01, format="%.2f", value=None, placeholder="0.00")
         with ic5:
-            making_val = st.number_input("Making Charge", min_value=0.0, step=1.0, value=None, placeholder="Making")
+            rate_10g = st.number_input("Rate (Per 10g)", min_value=0.0, step=10.0, format="%.2f", value=auto_rate_val)
         with ic6:
+            making_val = st.number_input("Making Charge", min_value=0.0, step=1.0, value=None, placeholder="Making")
+        with ic7:
             making_type = st.selectbox("Unit", ["%", "₹"])
 
         next_item_no = len(st.session_state.items_list) + 1
@@ -572,6 +527,7 @@ with tab_billing:
                 total_item_amt = metal_cost + making_amt
                 st.session_state.items_list.append({
                     "desc": item_desc.strip().upper(),
+                    "huid": item_huid.strip().upper() if item_huid else "NA",
                     "gross_wt": g_wt,
                     "net_wt": net_wt,
                     "hsn": "7113",
@@ -584,11 +540,14 @@ with tab_billing:
             else:
                 st.warning("Kripya Item Description, Net Weight aur Rate sahi se bharein.")
 
-    if st.session_state.items_list:
+    # Check: Items list khali hone par warning
+    if not st.session_state.items_list:
+        st.info("💡 Bill banane ke liye pehle Item Description aur Wazan daal kar **'➕ Add Item'** par click karein.")
+    else:
         df_items = pd.DataFrame(st.session_state.items_list)
-        display_cols = ["desc", "gross_wt", "net_wt", "purity", "rate", "making_display", "total"]
+        display_cols = ["desc", "huid", "gross_wt", "net_wt", "purity", "rate", "making_display", "total"]
         if mode == "Tax Invoice (GST)":
-            display_cols.insert(3, "hsn")
+            display_cols.insert(4, "hsn")
         st.table(df_items[display_cols])
 
         if st.button("🗑️ Clear All Items"):
@@ -666,6 +625,11 @@ with tab_billing:
             st.markdown(f"**Round Off:** Rs. {round_off:,.2f}")
             st.subheader(f"{display_box_color} {balance_label}: Rs. {final_amt:,.2f}")
 
+        if final_amt >= 200000 and not cust_pan:
+            st.warning("⚠️ **Legal Alert:** Bill amount ₹2,00,000 se zyada hai. Income Tax kanoon ke anusar Customer PAN Card likhna anivarya hai.")
+        if old_val_input > 0 and not cust_id:
+            st.info("💡 **Legal Tip:** Purana sona/chandi lene par Customer ka Aadhaar ya Voter ID number likhna zaroori hai.")
+
         btn_text = f"💾 Generate & Save {mode}"
         if st.button(btn_text, type="primary", use_container_width=True):
             if not cust_name:
@@ -682,7 +646,10 @@ with tab_billing:
                     "customer_name": cust_name,
                     "customer_mob": cust_mob,
                     "customer_address": cust_address,
+                    "customer_id": cust_id,
+                    "customer_pan": cust_pan,
                     "customer_gstin": cust_gstin,
+                    "payment_mode": payment_mode_selected,
                     "subtotal": subtotal,
                     "cgst": cgst,
                     "sgst": sgst,
@@ -694,7 +661,11 @@ with tab_billing:
                     "final_balance_label": balance_label
                 }
 
-                generate_a5_pdf(mode, meta_info, st.session_state.items_list, pdf_filepath)
+                try:
+                    generate_a5_pdf(mode, meta_info, st.session_state.items_list, pdf_filepath)
+                except Exception as pdf_err:
+                    st.error(f"PDF Banane me dikkat aayi: {str(pdf_err)}")
+                    st.stop()
 
                 with open(pdf_filepath, "rb") as f:
                     pdf_base64 = base64.b64encode(f.read()).decode('utf-8')
@@ -706,6 +677,9 @@ with tab_billing:
                     "customer_name": cust_name,
                     "customer_mob": str(cust_mob).strip() if cust_mob else "NA",
                     "customer_address": cust_address,
+                    "customer_id": cust_id or "NA",
+                    "customer_pan": cust_pan or "NA",
+                    "payment_mode": payment_mode_selected,
                     "gross": gross_total,
                     "old_exchange": old_val_input,
                     "net_payable": -final_amt if is_refund else final_amt,
@@ -714,14 +688,17 @@ with tab_billing:
                     "pdf_base64": pdf_base64
                 }
 
-                items_summary_str = ", ".join([f"{it['desc']} ({it['net_wt']}g)" for it in st.session_state.items_list])
+                items_summary_str = ", ".join([f"{it['desc']} (HUID:{it.get('huid','NA')}, {it['net_wt']}g)" for it in st.session_state.items_list])
                 db_row = {
                     "Document No": doc_number,
                     "Date": formatted_date,
                     "Customer Name": cust_name,
                     "Mobile No": str(cust_mob).strip() if cust_mob else "NA",
                     "Address": cust_address,
+                    "Customer Govt ID": cust_id or "NA",
+                    "Customer PAN": cust_pan or "NA",
                     "Party GSTIN": cust_gstin if cust_gstin else "NA",
+                    "Payment Mode": payment_mode_selected,
                     "Type": mode,
                     "Items": items_summary_str,
                     "Gross Amount": gross_total,
@@ -735,20 +712,9 @@ with tab_billing:
                 with st.spinner("☁️ Google Sheet & Drive par upload ho raha hai..."):
                     sync_ok, drive_pdf_url, error_msg = sync_to_google_sheet(payload)
 
-                st.session_state.c_name = ""
-                st.session_state.c_mob = ""
-                st.session_state.c_addr = "MANGO, JAMSHEDPUR"
-                st.session_state.c_gstin = ""
-                st.session_state.items_list = []
-                st.session_state.form_reset_count += 1
-                st.session_state.active_doc_number = get_next_number(mode)
-                
-                if sync_ok:
-                    st.success(f"✅ {mode} ({doc_number}) ban gaya!")
-                    if drive_pdf_url:
-                        st.markdown(f"🔗 [Google Drive par PDF dekhein]({drive_pdf_url})")
-                else:
-                    st.error(f"⚠️ Google Upload Failed: **{error_msg}**")
+                st.success(f"✅ {mode} ({doc_number}) ban gaya!")
+                if sync_ok and drive_pdf_url:
+                    st.markdown(f"🔗 [Google Drive par PDF dekhein]({drive_pdf_url})")
 
                 render_mobile_print_button(pdf_base64, doc_number)
 
@@ -760,6 +726,17 @@ with tab_billing:
                         mime="application/pdf",
                         use_container_width=True
                     )
+
+                # Reset customer & items for next bill
+                st.session_state.c_name = ""
+                st.session_state.c_mob = ""
+                st.session_state.c_addr = "MANGO, JAMSHEDPUR"
+                st.session_state.c_id = ""
+                st.session_state.c_pan = ""
+                st.session_state.c_gstin = ""
+                st.session_state.items_list = []
+                st.session_state.form_reset_count += 1
+                st.session_state.active_doc_number = get_next_number(mode)
 
 with tab_search:
     st.subheader("🔍 Customer Bill & History Search")
@@ -794,9 +771,9 @@ with tab_search:
                     c_name_val = str(row.get("Customer Name", ""))
                     c_mob_val = str(row.get("Mobile No", ""))
                     c_addr_val = str(row.get("Address", "MANGO, JAMSHEDPUR"))
-                    c_gst_val = str(row.get("Party GSTIN", ""))
-                    if c_gst_val == "NA":
-                        c_gst_val = ""
+                    c_id_val = str(row.get("Customer Govt ID", "")) if str(row.get("Customer Govt ID", "")) != "NA" else ""
+                    c_pan_val = str(row.get("Customer PAN", "")) if str(row.get("Customer PAN", "")) != "NA" else ""
+                    c_gst_val = str(row.get("Party GSTIN", "")) if str(row.get("Party GSTIN", "")) != "NA" else ""
                     safe_p_name = d_no.replace('/', '_')
                     p_file = os.path.join(PDF_DIR, f"{safe_p_name}.pdf")
 
@@ -815,6 +792,8 @@ with tab_search:
                                 st.session_state.c_name = c_name_val.upper()
                                 st.session_state.c_mob = "" if c_mob_val == "NA" else c_mob_val
                                 st.session_state.c_addr = c_addr_val.upper()
+                                st.session_state.c_id = c_id_val.upper()
+                                st.session_state.c_pan = c_pan_val.upper()
                                 st.session_state.c_gstin = c_gst_val.upper()
                                 st.session_state.form_reset_count += 1
                                 st.success(f"✅ {c_name_val} ki details load ho gayi hain! Upar 'New Bill / Estimate' tab par click karein.")
@@ -840,9 +819,9 @@ with tab_search:
                 c_name_val = str(row.get("Customer Name", ""))
                 c_mob_val = str(row.get("Mobile No", ""))
                 c_addr_val = str(row.get("Address", "MANGO, JAMSHEDPUR"))
-                c_gst_val = str(row.get("Party GSTIN", ""))
-                if c_gst_val == "NA":
-                    c_gst_val = ""
+                c_id_val = str(row.get("Customer Govt ID", "")) if str(row.get("Customer Govt ID", "")) != "NA" else ""
+                c_pan_val = str(row.get("Customer PAN", "")) if str(row.get("Customer PAN", "")) != "NA" else ""
+                c_gst_val = str(row.get("Party GSTIN", "")) if str(row.get("Party GSTIN", "")) != "NA" else ""
                 safe_r_name = d_no.replace('/', '_')
                 
                 rc1, rc2, rc3 = st.columns([2.5, 2.5, 2])
@@ -855,6 +834,8 @@ with tab_search:
                         st.session_state.c_name = c_name_val.upper()
                         st.session_state.c_mob = "" if c_mob_val == "NA" else c_mob_val
                         st.session_state.c_addr = c_addr_val.upper()
+                        st.session_state.c_id = c_id_val.upper()
+                        st.session_state.c_pan = c_pan_val.upper()
                         st.session_state.c_gstin = c_gst_val.upper()
                         st.session_state.form_reset_count += 1
                         st.success(f"✅ {c_name_val} ki details load ho gayi hain! Upar 'New Bill / Estimate' tab par click karein.")
