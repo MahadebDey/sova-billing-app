@@ -17,7 +17,7 @@ from reportlab.lib.units import mm, inch
 # Page Configuration
 st.set_page_config(page_title="SOVAA JEWELLERS - Billing & Sync", layout="wide", page_icon="💎")
 
-# CSS: Input boxes mein typing ko uppercase (capital) dikhane ke liye
+# CSS: Input boxes mein typing uppercase dikhane ke liye
 st.markdown("""
 <style>
 input[type="text"] {
@@ -26,33 +26,31 @@ input[type="text"] {
 </style>
 """, unsafe_allow_html=True)
 
-# Business & Legal Details
-HALLMARK_REG_NO = "HM/C-5800000504"
+# Business Details
+HALLMARK_REG_NO = "HM/C-5800000504[span_0](start_span)"[span_0](end_span)
 FIRM_GSTIN = "20AUJPD1127G1ZE"
 FIRM_PHONE = "7717740697"
 GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwyLXOi4yCglsCueHm_nVQ9wYjPUI0eKsPlxYxYGqFnwIvcML66W5JWfRCwtqj8WuhU/exec"
 
-# Directory
+# Setup Directory & Rates Storage
 PDF_DIR = "Invoices_PDF"
 os.makedirs(PDF_DIR, exist_ok=True)
-
-# Rates Storage File
 RATES_FILE = "daily_rates.json"
 
 def load_saved_rates():
-    default_vals = {"gold_22k": 72000.0, "gold_18k": 59000.0, "silver": 880.0}
+    defs = {"gold_22k": 72000.0, "gold_18k": 59000.0, "silver": 880.0}
     if os.path.exists(RATES_FILE):
         try:
             with open(RATES_FILE, "r") as f:
-                data = json.load(f)
+                d = json.load(f)
                 return {
-                    "gold_22k": float(data.get("gold_22k", 72000.0)),
-                    "gold_18k": float(data.get("gold_18k", 59000.0)),
-                    "silver": float(data.get("silver", 880.0))
+                    "gold_22k": float(d.get("gold_22k", 72000.0)),
+                    "gold_18k": float(d.get("gold_18k", 59000.0)),
+                    "silver": float(d.get("silver", 880.0))
                 }
         except Exception:
-            return default_vals
-    return default_vals
+            return defs
+    return defs
 
 def save_rates_to_file(g22, g18, sil):
     try:
@@ -61,7 +59,7 @@ def save_rates_to_file(g22, g18, sil):
     except Exception:
         pass
 
-# Initialize Session States Safely
+# Initialize Session States
 if "daily_gold_rate" not in st.session_state:
     rates = load_saved_rates()
     st.session_state.daily_gold_rate = rates["gold_22k"]
@@ -98,74 +96,65 @@ def get_current_fy_string():
     now = datetime.now()
     year = now.year
     if now.month < 4:
-        start_yr = year - 1
-        end_yr = year
+        s_yr, e_yr = year - 1, year
     else:
-        start_yr = year
-        end_yr = year + 1
-    return f"{str(start_yr)[-2:]}-{str(end_yr)[-2:]}"
+        s_yr, e_yr = year, year + 1
+    return f"{str(s_yr)[-2:]}-{str(e_yr)[-2:]}"
 
 def get_next_number(doc_type):
     prefix = "SV" if doc_type == "Tax Invoice (GST)" else "EST"
-    current_fy = get_current_fy_string()
+    fy = get_current_fy_string()
     max_val = 0
-
     try:
         res = requests.get(GOOGLE_SCRIPT_URL, timeout=3)
         if res.status_code == 200:
-            cloud_data = res.json()
-            if cloud_data.get("status") == "success":
-                cloud_num = cloud_data.get("last_gst" if doc_type == "Tax Invoice (GST)" else "last_est", 0)
-                if cloud_num and int(cloud_num) > max_val:
-                    max_val = int(cloud_num)
+            c_data = res.json()
+            if c_data.get("status") == "success":
+                c_num = c_data.get("last_gst" if doc_type == "Tax Invoice (GST)" else "last_est", 0)
+                if c_num and int(c_num) > max_val:
+                    max_val = int(c_num)
     except Exception:
         pass
 
-    db_file = "Sales_Database.xlsx" if doc_type == "Tax Invoice (GST)" else "Estimate_Database.xlsx"
-    num_col = "Document No"
-    if os.path.exists(db_file):
+    db = "Sales_Database.xlsx" if doc_type == "Tax Invoice (GST)" else "Estimate_Database.xlsx"
+    if os.path.exists(db):
         try:
-            df = pd.read_excel(db_file)
-            if not df.empty and num_col in df.columns:
-                for val in df[num_col].dropna().astype(str):
-                    val_clean = val.strip()
-                    if val_clean.startswith(prefix) and current_fy in val_clean:
-                        matches = re.findall(r'(\d+)$', val_clean)
-                        if matches:
-                            num = int(matches[0])
-                            if num > max_val:
-                                max_val = num
+            df = pd.read_excel(db)
+            if not df.empty and "Document No" in df.columns:
+                for val in df["Document No"].dropna().astype(str):
+                    v = val.strip()
+                    if v.startswith(prefix) and fy in v:
+                        m = re.findall(r'(\d+)$', v)
+                        if m and int(m[0]) > max_val:
+                            max_val = int(m[0])
         except Exception:
             pass
 
-    next_seq = max_val + 1
-    return f"{prefix}-{current_fy}/{str(next_seq).zfill(3)}"
+    return f"{prefix}-{fy}/{str(max_val + 1).zfill(3)}"
 
 def save_to_database(row_dict, doc_type):
-    db_file = "Sales_Database.xlsx" if doc_type == "Tax Invoice (GST)" else "Estimate_Database.xlsx"
+    db = "Sales_Database.xlsx" if doc_type == "Tax Invoice (GST)" else "Estimate_Database.xlsx"
     try:
-        if os.path.exists(db_file):
-            df = pd.read_excel(db_file)
+        if os.path.exists(db):
+            df = pd.read_excel(db)
             df = pd.concat([df, pd.DataFrame([row_dict])], ignore_index=True)
         else:
             df = pd.DataFrame([row_dict])
-        df.to_excel(db_file, index=False)
+        df.to_excel(db, index=False)
     except Exception:
         pass
 
 def sync_to_google_sheet(payload):
     try:
-        headers = {"Content-Type": "application/json"}
-        response = requests.post(GOOGLE_SCRIPT_URL, json=payload, headers=headers, timeout=12)
-        if response.status_code == 200:
-            res_data = response.json()
-            if res_data.get("status") == "success":
-                return True, res_data.get("pdf_url"), "Success"
-            else:
-                return False, None, res_data.get("message", "Script Error")
-        return False, None, f"HTTP Error: {response.status_code}"
+        res = requests.post(GOOGLE_SCRIPT_URL, json=payload, headers={"Content-Type": "application/json"}, timeout=12)
+        if res.status_code == 200:
+            d = res.json()
+            if d.get("status") == "success":
+                return True, d.get("pdf_url"), "Success"
+            return False, None, d.get("message", "Script Error")
+        return False, None, f"HTTP Error: {res.status_code}"
     except Exception as e:
-        return False, None, f"Network Error: {str(e)}"
+        return False, None, str(e)
 
 def generate_a5_pdf(doc_type, meta_info, items, pdf_path):
     doc = SimpleDocTemplate(
@@ -179,48 +168,43 @@ def generate_a5_pdf(doc_type, meta_info, items, pdf_path):
     story = []
     styles = getSampleStyleSheet()
 
-    title_style = ParagraphStyle(
-        'DocTitle', parent=styles['Normal'],
-        fontName='Helvetica-Bold', fontSize=9.5, leading=11, alignment=1, textColor=colors.HexColor('#222222')
-    )
-    cell_style = ParagraphStyle('CellText', parent=styles['Normal'], fontName='Helvetica', fontSize=5.8, leading=7.0, textColor=colors.HexColor('#222222'))
-    cell_bold = ParagraphStyle('CellBold', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=5.8, leading=7.0, textColor=colors.HexColor('#111111'))
-    cell_header = ParagraphStyle('CellHeader', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=5.8, leading=7.0, textColor=colors.HexColor('#111111'), alignment=1)
-    cell_right = ParagraphStyle('CellRight', parent=styles['Normal'], fontName='Helvetica', fontSize=5.8, leading=7.0, textColor=colors.HexColor('#222222'), alignment=2)
-    cell_right_bold = ParagraphStyle('CellRightBold', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=5.8, leading=7.0, textColor=colors.HexColor('#111111'), alignment=2)
-    terms_style = ParagraphStyle('TermsText', parent=styles['Normal'], fontName='Helvetica', fontSize=4.6, leading=5.8, textColor=colors.HexColor('#333333'))
-    sign_style = ParagraphStyle('SignText', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=5.2, leading=6.5, textColor=colors.HexColor('#111111'))
+    title_style = ParagraphStyle('DocTitle', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=9.5, leading=11, alignment=1)
+    cell_style = ParagraphStyle('CellText', parent=styles['Normal'], fontName='Helvetica', fontSize=5.8, leading=7.0)
+    cell_bold = ParagraphStyle('CellBold', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=5.8, leading=7.0)
+    cell_header = ParagraphStyle('CellHeader', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=5.8, leading=7.0, alignment=1)
+    cell_right = ParagraphStyle('CellRight', parent=styles['Normal'], fontName='Helvetica', fontSize=5.8, leading=7.0, alignment=2)
+    cell_right_bold = ParagraphStyle('CellRightBold', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=5.8, leading=7.0, alignment=2)
+    terms_style = ParagraphStyle('TermsText', parent=styles['Normal'], fontName='Helvetica', fontSize=4.4, leading=5.4)
 
     is_gst = (doc_type == "Tax Invoice (GST)")
-    title_text = "<u>TAX INVOICE</u>" if is_gst else "<u>ESTIMATE</u>"
-    story.append(Paragraph(title_text, title_style))
+    story.append(Paragraph("<u>TAX INVOICE</u>" if is_gst else "<u>ESTIMATE</u>", title_style))
     story.append(Spacer(1, 1 * mm))
 
-    cust_mob_display = meta_info['customer_mob'] if meta_info['customer_mob'] else "NA"
-    cust_pan_display = meta_info.get('customer_pan') if meta_info.get('customer_pan') else "NA"
-    cust_id_display = meta_info.get('customer_id') if meta_info.get('customer_id') else "NA"
+    c_mob = meta_info['customer_mob'] or "NA"
+    c_pan = meta_info.get('customer_pan') or "NA"
+    c_id = meta_info.get('customer_id') or "NA"
 
     if is_gst:
         meta_data = [
             [Paragraph(f"<b>Date:</b> {meta_info['date']}", cell_style), Paragraph(f"<b>GSTIN:</b> {FIRM_GSTIN}", cell_style)],
             [Paragraph(f"<b>Invoice No:</b> {meta_info['doc_no']}", cell_style), Paragraph(f"<b>Hallmark Reg:</b> {HALLMARK_REG_NO}", cell_style)],
-            [Paragraph(f"<b>Customer Name:</b> {meta_info['customer_name']}", cell_style), Paragraph(f"<b>Payment Mode:</b> {meta_info.get('payment_mode', 'UPI / Cash')}", cell_style)],
-            [Paragraph(f"<b>Customer Mob:</b> {cust_mob_display}", cell_style), Paragraph(f"<b>Govt ID / Aadhaar:</b> {cust_id_display}", cell_style)],
-            [Paragraph(f"<b>Customer PAN:</b> {cust_pan_display}", cell_style), Paragraph("<b>State & Code:</b> 20 - JHARKHAND", cell_style)],
+            [Paragraph(f"<b>Customer Name:</b> {meta_info['customer_name']}", cell_style), Paragraph(f"<b>Payment Mode:</b> {meta_info.get('payment_mode', 'UPI/Cash')}", cell_style)],
+            [Paragraph(f"<b>Customer Mob:</b> {c_mob}", cell_style), Paragraph(f"<b>Govt ID / Aadhaar:</b> {c_id}", cell_style)],
+            [Paragraph(f"<b>Customer PAN:</b> {c_pan}", cell_style), Paragraph("<b>State:</b> 20 - JHARKHAND", cell_style)],
             [Paragraph(f"<b>Address:</b> {meta_info['customer_address']}", cell_style), Paragraph(f"<b>Party GSTIN:</b> {meta_info['customer_gstin'] or 'NA'}", cell_style)]
         ]
     else:
         meta_data = [
             [Paragraph(f"<b>Date:</b> {meta_info['date']}", cell_style), Paragraph(f"<b>Hallmark Reg:</b> {HALLMARK_REG_NO}", cell_style)],
-            [Paragraph(f"<b>Estimate No:</b> {meta_info['doc_no']}", cell_style), Paragraph(f"<b>Payment Mode:</b> {meta_info.get('payment_mode', 'UPI / Cash')}", cell_style)],
-            [Paragraph(f"<b>Customer Name:</b> {meta_info['customer_name']}", cell_style), Paragraph(f"<b>Customer Mob:</b> {cust_mob_display}", cell_style)],
-            [Paragraph(f"<b>Govt ID / Aadhaar:</b> {cust_id_display}", cell_style), Paragraph(f"<b>Customer PAN:</b> {cust_pan_display}", cell_style)],
+            [Paragraph(f"<b>Estimate No:</b> {meta_info['doc_no']}", cell_style), Paragraph(f"<b>Payment Mode:</b> {meta_info.get('payment_mode', 'UPI/Cash')}", cell_style)],
+            [Paragraph(f"<b>Customer Name:</b> {meta_info['customer_name']}", cell_style), Paragraph(f"<b>Customer Mob:</b> {c_mob}", cell_style)],
+            [Paragraph(f"<b>Govt ID / Aadhaar:</b> {c_id}", cell_style), Paragraph(f"<b>Customer PAN:</b> {c_pan}", cell_style)],
             [Paragraph(f"<b>Address:</b> {meta_info['customer_address']}", cell_style), Paragraph("<b>State:</b> JHARKHAND", cell_style)]
         ]
 
     meta_table = Table(meta_data, colWidths=[68 * mm, 68 * mm])
     meta_table.setStyle(TableStyle([
-        ('BOX', (0,0), (-1,-1), 0.5, colors.HexColor('#444444')),
+        ('BOX', (0,0), (-1,-1), 0.5, colors.HexColor('#444')),
         ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
         ('TOPPADDING', (0,0), (-1,-1), 0.6),
         ('BOTTOMPADDING', (0,0), (-1,-1), 0.6),
@@ -249,44 +233,47 @@ def generate_a5_pdf(doc_type, meta_info, items, pdf_path):
     for idx, itm in enumerate(items, 1):
         desc_huid_text = f"<b>{itm['desc']}</b>"
         if itm.get('huid') and itm['huid'] != "NA":
-            desc_huid_text += f"<br/><font size='4.8' color='#444444'>HUID: {itm['huid']}</font>"
+            desc_huid_text += f"<br/><font size='4.8' color='#444'>HUID: {itm['huid']}</font>"
 
         if is_gst:
             item_rows.append([
                 Paragraph(str(idx), cell_style), Paragraph(desc_huid_text, cell_style),
-                Paragraph(f"{itm['gross_wt']:.2f} g", cell_style), Paragraph(f"{itm['net_wt']:.2f} g", cell_style),
+                Paragraph(f"{itm['gross_wt']:.2f}g", cell_style), Paragraph(f"{itm['net_wt']:.2f}g", cell_style),
                 Paragraph(str(itm['hsn']), cell_style), Paragraph(str(itm['purity']), cell_style),
-                Paragraph(f"Rs. {itm['rate']:,.2f}", cell_style), Paragraph(str(itm['making_display']), cell_style),
-                Paragraph(f"Rs. {itm['total']:,.2f}", cell_style)
+                Paragraph(f"Rs.{itm['rate']:,.2f}", cell_style), Paragraph(str(itm['making_display']), cell_style),
+                Paragraph(f"Rs.{itm['total']:,.2f}", cell_style)
             ])
         else:
             item_rows.append([
                 Paragraph(str(idx), cell_style), Paragraph(desc_huid_text, cell_style),
-                Paragraph(f"{itm['gross_wt']:.2f} g", cell_style), Paragraph(f"{itm['net_wt']:.2f} g", cell_style),
-                Paragraph(str(itm['purity']), cell_style), Paragraph(f"Rs. {itm['rate']:,.2f}", cell_style),
-                Paragraph(str(itm['making_display']), cell_style), Paragraph(f"Rs. {itm['total']:,.2f}", cell_style)
+                Paragraph(f"{itm['gross_wt']:.2f}g", cell_style), Paragraph(f"{itm['net_wt']:.2f}g", cell_style),
+                Paragraph(str(itm['purity']), cell_style), Paragraph(f"Rs.{itm['rate']:,.2f}", cell_style),
+                Paragraph(str(itm['making_display']), cell_style), Paragraph(f"Rs.{itm['total']:,.2f}", cell_style)
             ])
 
     item_table = Table(item_rows, colWidths=col_widths)
     item_table.setStyle(TableStyle([
-        ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#eeeeee')),
-        ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#555555')),
+        ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#eee')),
+        ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#555')),
         ('ALIGN', (0,0), (-1,-1), 'CENTER'),
         ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
         ('TOPPADDING', (0,0), (-1,-1), 1.0),
         ('BOTTOMPADDING', (0,0), (-1,-1), 1.0),
     ]))
     story.append(item_table)
-    story.append(Spacer(1, 2 * mm))
+    story.append(Spacer(1, 1.5 * mm))
 
-    # Terms Section
+    # Terms Section: Term 1 removed, Customer Signature and SOVAA Jewellers right next to each other
     left_block = Paragraph(
         "<b>Terms & Conditions:</b><br/>"
-        "1. Gold purity certified as per BIS Hallmarking guidelines.<br/>"
-        "2. Breakage/stone responsibility ceases once item delivered.<br/>"
-        "3. Making charges & GST are strictly non-refundable.<br/>"
-        "4. Old metal exchange confirms lawful self-acquired property.<br/>"
-        "5. Disputes subject to Jamshedpur jurisdiction only.",
+        "1. Breakage/stone responsibility ceases once item delivered.<br/>"
+        "2. Making charges & GST are strictly non-refundable.<br/>"
+        "3. Old metal exchange confirms lawful self-acquired property.<br/>"
+        "4. Disputes subject to Jamshedpur jurisdiction.<br/><br/>"
+        "<table width='100%'><tr>"
+        "<td align='left' width='48%' style='font-size:5.5pt;'><b>Customer Signature</b></td>"
+        "<td align='left' width='52%' style='font-size:5.5pt;'><b>For SOVAA JEWELLERS</b><br/>(Authorised Signatory)</td>"
+        "</tr></table>",
         terms_style
     )
 
@@ -296,52 +283,34 @@ def generate_a5_pdf(doc_type, meta_info, items, pdf_path):
 
     if is_gst:
         summary_rows = [
-            [left_block, Paragraph("<b>Subtotal:</b>", cell_style), Paragraph(f"Rs. {meta_info['subtotal']:,.2f}", cell_right)],
-            ["", Paragraph("<b>CGST (1.5%):</b>", cell_style), Paragraph(f"Rs. {meta_info['cgst']:,.2f}", cell_right)],
-            ["", Paragraph("<b>SGST (1.5%):</b>", cell_style), Paragraph(f"Rs. {meta_info['sgst']:,.2f}", cell_right)],
-            ["", Paragraph("<b>Gross Total:</b>", cell_style), Paragraph(f"Rs. {meta_info['gross']:,.2f}", cell_right)],
+            [left_block, Paragraph("<b>Subtotal:</b>", cell_style), Paragraph(f"Rs.{meta_info['subtotal']:,.2f}", cell_right)],
+            ["", Paragraph("<b>CGST (1.5%):</b>", cell_style), Paragraph(f"Rs.{meta_info['cgst']:,.2f}", cell_right)],
+            ["", Paragraph("<b>SGST (1.5%):</b>", cell_style), Paragraph(f"Rs.{meta_info['sgst']:,.2f}", cell_right)],
+            ["", Paragraph("<b>Gross Total:</b>", cell_style), Paragraph(f"Rs.{meta_info['gross']:,.2f}", cell_right)],
         ]
         if old_exchange > 0:
-            summary_rows.append(["", Paragraph(f"<b>{exchange_label}:</b>", cell_style), Paragraph(f"- Rs. {old_exchange:,.2f}", cell_right)])
-        summary_rows.append(["", Paragraph("<b>Round Off:</b>", cell_style), Paragraph(f"Rs. {meta_info['round_off']:+.2f}", cell_right)])
-        summary_rows.append(["", Paragraph(f"<b>{final_balance_label}:</b>", cell_bold), Paragraph(f"<b>Rs. {meta_info['net_payable']:,.2f}</b>", cell_right_bold)])
+            summary_rows.append(["", Paragraph(f"<b>{exchange_label}:</b>", cell_style), Paragraph(f"- Rs.{old_exchange:,.2f}", cell_right)])
+        summary_rows.append(["", Paragraph("<b>Round Off:</b>", cell_style), Paragraph(f"Rs.{meta_info['round_off']:+.2f}", cell_right)])
+        summary_rows.append(["", Paragraph(f"<b>{final_balance_label}:</b>", cell_bold), Paragraph(f"<b>Rs.{meta_info['net_payable']:,.2f}</b>", cell_right_bold)])
     else:
         summary_rows = [
-            [left_block, Paragraph("<b>Total Value:</b>", cell_style), Paragraph(f"Rs. {meta_info['subtotal']:,.2f}", cell_right)],
+            [left_block, Paragraph("<b>Total Value:</b>", cell_style), Paragraph(f"Rs.{meta_info['subtotal']:,.2f}", cell_right)],
         ]
         if old_exchange > 0:
-            summary_rows.append(["", Paragraph(f"<b>{exchange_label}:</b>", cell_style), Paragraph(f"- Rs. {old_exchange:,.2f}", cell_right)])
-        summary_rows.append(["", Paragraph("<b>Round Off:</b>", cell_style), Paragraph(f"Rs. {meta_info['round_off']:+.2f}", cell_right)])
-        summary_rows.append(["", Paragraph(f"<b>{final_balance_label}:</b>", cell_bold), Paragraph(f"<b>Rs. {meta_info['net_payable']:,.2f}</b>", cell_right_bold)])
+            summary_rows.append(["", Paragraph(f"<b>{exchange_label}:</b>", cell_style), Paragraph(f"- Rs.{old_exchange:,.2f}", cell_right)])
+        summary_rows.append(["", Paragraph("<b>Round Off:</b>", cell_style), Paragraph(f"Rs.{meta_info['round_off']:+.2f}", cell_right)])
+        summary_rows.append(["", Paragraph(f"<b>{final_balance_label}:</b>", cell_bold), Paragraph(f"<b>Rs.{meta_info['net_payable']:,.2f}</b>", cell_right_bold)])
 
-    summary_table = Table(summary_rows, colWidths=[68 * mm, 36 * mm, 32 * mm])
+    summary_table = Table(summary_rows, colWidths=[70 * mm, 35 * mm, 31 * mm])
     summary_table.setStyle(TableStyle([
         ('SPAN', (0,0), (0, len(summary_rows)-1)),
         ('VALIGN', (0,0), (-1,-1), 'TOP'),
-        ('BOX', (1,0), (-1,-1), 0.5, colors.HexColor('#444444')),
-        ('INNERGRID', (1,0), (-1,-1), 0.4, colors.HexColor('#777777')),
+        ('BOX', (1,0), (-1,-1), 0.5, colors.HexColor('#444')),
+        ('INNERGRID', (1,0), (-1,-1), 0.4, colors.HexColor('#777')),
         ('TOPPADDING', (0,0), (-1,-1), 0.6),
         ('BOTTOMPADDING', (0,0), (-1,-1), 0.6),
     ]))
     story.append(summary_table)
-    story.append(Spacer(1, 2.5 * mm))
-
-    # Dual Signature Layout (Left: Customer Signature, Right: SOVAA Jewellers Signature)
-    sig_data = [
-        [
-            Paragraph("Customer Signature / अंगूठा<br/><br/><br/>______________________<br/><font size='4.2' color='#555555'>(Lawful owner of exchange metal)</font>", sign_style),
-            Paragraph("For SOVAA JEWELLERS<br/><br/><br/>______________________<br/><font size='4.2' color='#555555'>(Authorised Signatory)</font>", sign_style)
-        ]
-    ]
-    sig_table = Table(sig_data, colWidths=[68 * mm, 68 * mm])
-    sig_table.setStyle(TableStyle([
-        ('ALIGN', (0,0), (0,0), 'LEFT'),
-        ('ALIGN', (1,0), (1,0), 'RIGHT'),
-        ('VALIGN', (0,0), (-1,-1), 'TOP'),
-        ('TOPPADDING', (0,0), (-1,-1), 0.3),
-        ('BOTTOMPADDING', (0,0), (-1,-1), 0.3),
-    ]))
-    story.append(sig_table)
 
     doc.build(story)
 
@@ -351,7 +320,7 @@ def render_mobile_print_button(pdf_base64, doc_no):
 
 # --- HEADER SECTION ---
 st.title("💎 SOVAA JEWELLERS")
-st.write(f"**Hallmark Reg No:** `{HALLMARK_REG_NO}` | **GSTIN:** `{FIRM_GSTIN}`")
+st.write(f"**Hallmark Reg No:** `{HALLMARK_REG_NO}` | **GSTIN:** `{FIRM_GSTIN}`")[span_1](start_span)[span_1](end_span)
 
 # --- DAILY MARKET RATES PANEL ---
 with st.expander("📈 **Today's Market Rates (Aaj ka Gold & Silver Bhav)**", expanded=False):
@@ -359,25 +328,19 @@ with st.expander("📈 **Today's Market Rates (Aaj ka Gold & Silver Bhav)**", ex
     with r_col1:
         new_g22 = st.number_input(
             "🪙 22K Gold Rate (Per 10g) ₹", 
-            min_value=0.0, 
-            step=100.0, 
-            format="%.2f", 
+            min_value=0.0, step=100.0, format="%.2f", 
             value=float(st.session_state.daily_gold_rate)
         )
     with r_col2:
         new_g18 = st.number_input(
             "🪙 18K Gold Rate (Per 10g) ₹", 
-            min_value=0.0, 
-            step=100.0, 
-            format="%.2f", 
+            min_value=0.0, step=100.0, format="%.2f", 
             value=float(st.session_state.daily_gold_18k_rate)
         )
     with r_col3:
         new_sil = st.number_input(
             "🥈 Silver Rate (Per 10g) ₹", 
-            min_value=0.0, 
-            step=10.0, 
-            format="%.2f", 
+            min_value=0.0, step=10.0, format="%.2f", 
             value=float(st.session_state.daily_silver_rate)
         )
     
@@ -478,7 +441,7 @@ with tab_billing:
         purity_choice = st.selectbox("Purity", purity_options, index=default_purity_idx, key="purity_selector")
     with p_col2:
         st.write("")
-        st.caption(f"🛡️ Hallmarking: {purity_choice} under {HALLMARK_REG_NO}")
+        st.caption(f"🛡️ Hallmarking: {purity_choice} under {HALLMARK_REG_NO}")[span_2](start_span)[span_2](end_span)
 
     if purity_choice == "18K (750)":
         auto_rate_val = st.session_state.daily_gold_18k_rate
@@ -540,7 +503,6 @@ with tab_billing:
             else:
                 st.warning("Kripya Item Description, Net Weight aur Rate sahi se bharein.")
 
-    # Check: Items list khali hone par warning
     if not st.session_state.items_list:
         st.info("💡 Bill banane ke liye pehle Item Description aur Wazan daal kar **'➕ Add Item'** par click karein.")
     else:
@@ -727,7 +689,7 @@ with tab_billing:
                         use_container_width=True
                     )
 
-                # Reset customer & items for next bill
+                # Reset form for next customer
                 st.session_state.c_name = ""
                 st.session_state.c_mob = ""
                 st.session_state.c_addr = "MANGO, JAMSHEDPUR"
