@@ -161,7 +161,7 @@ def generate_a5_pdf(doc_type, meta_info, items, pdf_path):
         pagesize=A5,
         leftMargin=6 * mm,
         rightMargin=6 * mm,
-        topMargin=1.05 * inch,
+        topMargin=1.25 * inch,
         bottomMargin=3.5 * mm
     )
     story = []
