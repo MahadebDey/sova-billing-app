@@ -26,8 +26,8 @@ input[type="text"] {
 </style>
 """, unsafe_allow_html=True)
 
-# Business Details
-HALLMARK_REG_NO = "HM/C-5800000504[span_0](start_span)"[span_0](end_span)
+# Business Details (Clean Variables)
+HALLMARK_REG_NO = "HM/C-5800000504"
 FIRM_GSTIN = "20AUJPD1127G1ZE"
 FIRM_PHONE = "7717740697"
 GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwyLXOi4yCglsCueHm_nVQ9wYjPUI0eKsPlxYxYGqFnwIvcML66W5JWfRCwtqj8WuhU/exec"
@@ -263,7 +263,7 @@ def generate_a5_pdf(doc_type, meta_info, items, pdf_path):
     story.append(item_table)
     story.append(Spacer(1, 1.5 * mm))
 
-    # Terms Section: Term 1 removed, Customer Signature and SOVAA Jewellers right next to each other
+    # Terms Section
     left_block = Paragraph(
         "<b>Terms & Conditions:</b><br/>"
         "1. Breakage/stone responsibility ceases once item delivered.<br/>"
@@ -320,7 +320,7 @@ def render_mobile_print_button(pdf_base64, doc_no):
 
 # --- HEADER SECTION ---
 st.title("💎 SOVAA JEWELLERS")
-st.write(f"**Hallmark Reg No:** `{HALLMARK_REG_NO}` | **GSTIN:** `{FIRM_GSTIN}`")[span_1](start_span)[span_1](end_span)
+st.write(f"**Hallmark Reg No:** `{HALLMARK_REG_NO}` | **GSTIN:** `{FIRM_GSTIN}`")
 
 # --- DAILY MARKET RATES PANEL ---
 with st.expander("📈 **Today's Market Rates (Aaj ka Gold & Silver Bhav)**", expanded=False):
@@ -335,7 +335,7 @@ with st.expander("📈 **Today's Market Rates (Aaj ka Gold & Silver Bhav)**", ex
         new_g18 = st.number_input(
             "🪙 18K Gold Rate (Per 10g) ₹", 
             min_value=0.0, step=100.0, format="%.2f", 
-            value=float(st.session_state.daily_gold_18k_rate)
+            value=float(st.session_state.daily_gold_rate)
         )
     with r_col3:
         new_sil = st.number_input(
@@ -441,7 +441,7 @@ with tab_billing:
         purity_choice = st.selectbox("Purity", purity_options, index=default_purity_idx, key="purity_selector")
     with p_col2:
         st.write("")
-        st.caption(f"🛡️ Hallmarking: {purity_choice} under {HALLMARK_REG_NO}")[span_2](start_span)[span_2](end_span)
+        st.caption(f"🛡️ Hallmarking: {purity_choice} under {HALLMARK_REG_NO}")
 
     if purity_choice == "18K (750)":
         auto_rate_val = st.session_state.daily_gold_18k_rate
