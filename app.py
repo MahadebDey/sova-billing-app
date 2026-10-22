@@ -26,7 +26,7 @@ input[type="text"] {
 """, unsafe_allow_html=True)
 
 # Business Details
-HALLMARK_REG_NO = "HM/C-5800000504"
+HALLMARK_REG_NO = "HM/C-5800000504[span_0](start_span)"[span_0](end_span)
 FIRM_GSTIN = "20AUJPD1127G1ZE"
 FIRM_PHONE = "7717740697"
 GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwyLXOi4yCglsCueHm_nVQ9wYjPUI0eKsPlxYxYGqFnwIvcML66W5JWfRCwtqj8WuhU/exec"
@@ -162,35 +162,35 @@ def generate_a5_pdf(doc_type, meta_info, items, pdf_path):
         leftMargin=6 * mm,
         rightMargin=6 * mm,
         topMargin=1.05 * inch,
-        bottomMargin=3 * mm
+        bottomMargin=3.5 * mm
     )
     story = []
     styles = getSampleStyleSheet()
 
-    # Dynamic scaling engine based on total number of items
+    # Dynamic scaling taaki total items ke mutabik text adjust ho aur Subtotal bottom par pin rahe
     num_items = len(items)
     if num_items <= 2:
-        item_font = 6.8
-        item_leading = 8.2
-        item_pad = 2.0
-        spacer_gap = 4.0 * mm
-        terms_font = 5.6
-        terms_leading = 6.8
-    elif num_items <= 4:
-        item_font = 6.0
-        item_leading = 7.4
-        item_pad = 1.4
-        spacer_gap = 2.5 * mm
+        item_font = 6.6
+        item_leading = 8.0
+        item_pad = 2.2
+        # A5 height mein subtotal ko exact bottom par push karne ke liye gap
+        dynamic_bottom_gap = max(10 * mm, (4 - num_items) * 11.0 * mm)
         terms_font = 5.2
         terms_leading = 6.4
+    elif num_items <= 4:
+        item_font = 5.8
+        item_leading = 7.0
+        item_pad = 1.4
+        dynamic_bottom_gap = max(4 * mm, (5 - num_items) * 6.0 * mm)
+        terms_font = 4.8
+        terms_leading = 6.0
     else:
-        # Auto-adjusts when items increase so everything fits cleanly on single A5 sheet
-        item_font = 5.2
-        item_leading = 6.4
+        item_font = 5.0
+        item_leading = 6.2
         item_pad = 0.8
-        spacer_gap = 1.2 * mm
-        terms_font = 4.7
-        terms_leading = 5.8
+        dynamic_bottom_gap = 2 * mm
+        terms_font = 4.4
+        terms_leading = 5.5
 
     title_style = ParagraphStyle('DocTitle', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=10, leading=12, alignment=1)
     cell_meta = ParagraphStyle('CellMeta', parent=styles['Normal'], fontName='Helvetica', fontSize=6.2, leading=7.5)
@@ -198,7 +198,7 @@ def generate_a5_pdf(doc_type, meta_info, items, pdf_path):
     cell_style = ParagraphStyle('CellText', parent=styles['Normal'], fontName='Helvetica', fontSize=item_font, leading=item_leading)
     cell_header = ParagraphStyle('CellHeader', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=item_font, leading=item_leading, alignment=1, textColor=colors.HexColor('#000000'))
     
-    cell_right = ParagraphStyle('CellRight', parent=styles['Normal'], fontName='Helvetica', fontSize=6.0, leading=7.2, alignment=2)
+    cell_right = ParagraphStyle('CellRight', parent=styles['Normal'], fontName='Helvetica', fontSize=5.8, leading=7.0, alignment=2)
     cell_right_bold = ParagraphStyle('CellRightBold', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=6.2, leading=7.4, alignment=2)
     terms_style = ParagraphStyle('TermsText', parent=styles['Normal'], fontName='Helvetica', fontSize=terms_font, leading=terms_leading)
 
@@ -210,7 +210,7 @@ def generate_a5_pdf(doc_type, meta_info, items, pdf_path):
     c_pan = meta_info.get('customer_pan')
     c_aadhaar = meta_info.get('customer_aadhaar')
 
-    # Merged Name with PAN, Address with Aadhaar
+    # Merged Customer Name with PAN & Address with Aadhaar
     cust_name_pan = f"<b>Customer Name:</b> {meta_info['customer_name']}"
     if c_pan and c_pan != "NA":
         cust_name_pan += f" (PAN: {c_pan})"
@@ -245,7 +245,7 @@ def generate_a5_pdf(doc_type, meta_info, items, pdf_path):
     story.append(meta_table)
     story.append(Spacer(1, 1.2 * mm))
 
-    # Items Table Columns
+    # Items Table
     if is_gst:
         item_rows = [[
             Paragraph("Sr", cell_header), Paragraph("Description & HUID", cell_header),
@@ -286,7 +286,6 @@ def generate_a5_pdf(doc_type, meta_info, items, pdf_path):
             ])
 
     item_table = Table(item_rows, colWidths=col_widths)
-    # Background light gray (#EAEAEA) taaki header saaf aur readable print ho
     item_table.setStyle(TableStyle([
         ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#EAEAEA')),
         ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#555')),
@@ -296,20 +295,29 @@ def generate_a5_pdf(doc_type, meta_info, items, pdf_path):
         ('BOTTOMPADDING', (0,0), (-1,-1), item_pad),
     ]))
     story.append(item_table)
-    story.append(Spacer(1, spacer_gap))
 
-    # Terms Section with clear gap between Customer Signature and SOVAA Jewellers
+    # Dynamic Bottom Spacer: Yeh subtotal aur terms ko A5 ke exact bottom par bhejta hai
+    story.append(Spacer(1, dynamic_bottom_gap))
+
+    # Terms Section: Customer Signature & SOVAA Jewellers with space and half-inch gap
     left_block = Paragraph(
         "<b>Terms & Conditions:</b><br/>"
         "1. Breakage/stone responsibility ceases once item delivered.<br/>"
         "2. Making charges & GST are strictly non-refundable.<br/>"
         "3. Old metal exchange confirms lawful self-acquired property.<br/>"
         "4. Disputes subject to Jamshedpur jurisdiction.<br/><br/>"
-        "<table width='100%'><tr>"
-        "<td align='left' width='44%' style='font-size:6pt;'><b>Customer Signature</b></td>"
-        "<td width='12%'></td>"
-        "<td align='left' width='44%' style='font-size:6pt;'><b>For SOVAA JEWELLERS</b><br/>(Authorised Signatory)</td>"
-        "</tr></table>",
+        "<table width='100%'>"
+        "<tr>"
+        "<td align='left' width='41%' style='font-size:5.8pt; line-height:7.5pt;'>"
+        "<b>Customer Signature</b><br/><br/><br/>"
+        "</td>"
+        "<td width='18%'></td>"
+        "<td align='left' width='41%' style='font-size:5.8pt; line-height:7.5pt;'>"
+        "<b>For SOVAA JEWELLERS</b><br/><br/><br/>"
+        "(Authorised Signatory)"
+        "</td>"
+        "</tr>"
+        "</table>",
         terms_style
     )
 
@@ -356,7 +364,7 @@ def render_mobile_print_button(pdf_base64, doc_no):
 
 # --- HEADER SECTION ---
 st.title("💎 SOVAA JEWELLERS")
-st.write(f"**Hallmark Reg No:** `{HALLMARK_REG_NO}` | **GSTIN:** `{FIRM_GSTIN}`")
+st.write(f"**Hallmark Reg No:** `{HALLMARK_REG_NO}` | **GSTIN:** `{FIRM_GSTIN}`")[span_1](start_span)[span_1](end_span)
 
 # --- DAILY MARKET RATES PANEL ---
 with st.expander("📈 **Today's Market Rates (Aaj ka Gold & Silver Bhav)**", expanded=False):
@@ -477,7 +485,7 @@ with tab_billing:
         purity_choice = st.selectbox("Purity", purity_options, index=default_purity_idx, key="purity_selector")
     with p_col2:
         st.write("")
-        st.caption(f"🛡️ Hallmarking: {purity_choice} under {HALLMARK_REG_NO}")
+        st.caption(f"🛡️ Hallmarking: {purity_choice} under {HALLMARK_REG_NO}")[span_2](start_span)[span_2](end_span)
 
     if purity_choice == "18K (750)":
         auto_rate_val = st.session_state.daily_gold_18k_rate
@@ -623,9 +631,8 @@ with tab_billing:
             st.markdown(f"**Round Off:** Rs. {round_off:,.2f}")
             st.subheader(f"{display_box_color} {balance_label}: Rs. {final_amt:,.2f}")
 
-        if f_amt := final_amt:
-            if f_amt >= 200000 and not cust_pan:
-                st.warning("⚠️ **Legal Alert:** Bill amount ₹2,00,000 se zyada hai. Income Tax kanoon ke anusar Customer PAN Card likhna anivarya hai.")
+        if final_amt >= 200000 and not cust_pan:
+            st.warning("⚠️ **Legal Alert:** Bill amount ₹2,00,000 se zyada hai. Income Tax kanoon ke anusar Customer PAN Card likhna anivarya hai.")
 
         btn_text = f"💾 Generate & Save {mode}"
         if st.button(btn_text, type="primary", use_container_width=True):
