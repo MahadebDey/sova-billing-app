@@ -199,6 +199,7 @@ def generate_a5_pdf(doc_type, meta_info, items, pdf_path):
     cell_right = ParagraphStyle('CellRight', parent=styles['Normal'], fontName='Helvetica', fontSize=5.8, leading=7.0, alignment=2)
     cell_right_bold = ParagraphStyle('CellRightBold', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=6.2, leading=7.4, alignment=2)
     terms_style = ParagraphStyle('TermsText', parent=styles['Normal'], fontName='Helvetica', fontSize=terms_font, leading=terms_leading)
+    sign_style = ParagraphStyle('SignText', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=5.8, leading=7.2)
 
     is_gst = (doc_type == "Tax Invoice (GST)")
     story.append(Paragraph("<u>TAX INVOICE</u>" if is_gst else "<u>ESTIMATE</u>", title_style))
@@ -295,27 +296,36 @@ def generate_a5_pdf(doc_type, meta_info, items, pdf_path):
 
     story.append(Spacer(1, dynamic_bottom_gap))
 
-    # Terms Section: Customer Signature & SOVAA Jewellers with exact Half-inch (12.7mm) gap
-    left_block = Paragraph(
+    # Real Sub-Table for Signatures (Left: Customer, Middle: 12.7mm Half-inch gap, Right: SOVAA Jewellers)
+    sig_subtable = Table([
+        [
+            Paragraph("Customer Signature<br/><br/><br/>", sign_style),
+            "",
+            Paragraph("For SOVAA JEWELLERS<br/><br/><br/>(Authorised Signatory)", sign_style)
+        ]
+    ], colWidths=[27 * mm, 12.7 * mm, 29 * mm])
+    sig_subtable.setStyle(TableStyle([
+        ('VALIGN', (0,0), (-1,-1), 'TOP'),
+        ('LEFTPADDING', (0,0), (-1,-1), 0),
+        ('RIGHTPADDING', (0,0), (-1,-1), 0),
+        ('TOPPADDING', (0,0), (-1,-1), 0),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 0),
+    ]))
+
+    terms_paragraph = Paragraph(
         "<b>Terms & Conditions:</b><br/>"
         "1. Breakage/stone responsibility ceases once item delivered.<br/>"
         "2. Making charges & GST are strictly non-refundable.<br/>"
         "3. Old metal exchange confirms lawful self-acquired property.<br/>"
-        "4. Disputes subject to Jamshedpur jurisdiction.<br/><br/>"
-        "<table width='100%'>"
-        "<tr>"
-        "<td align='left' width='41%' style='font-size:5.8pt; line-height:7.5pt;'>"
-        "<b>Customer Signature</b><br/><br/><br/>"
-        "</td>"
-        "<td width='18%'></td>"
-        "<td align='left' width='41%' style='font-size:5.8pt; line-height:7.5pt;'>"
-        "<b>For SOVAA JEWELLERS</b><br/><br/><br/>"
-        "(Authorised Signatory)"
-        "</td>"
-        "</tr>"
-        "</table>",
+        "4. Disputes subject to Jamshedpur jurisdiction.",
         terms_style
     )
+
+    left_block = [
+        terms_paragraph,
+        Spacer(1, 2.5 * mm),
+        sig_subtable
+    ]
 
     old_exchange = meta_info.get('old_exchange', 0.0)
     exchange_label = meta_info.get('exchange_label', 'Less Old Exchange')
