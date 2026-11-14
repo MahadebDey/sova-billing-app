@@ -84,11 +84,10 @@ if "form_reset_count" not in st.session_state:
 
 COMMON_ITEMS = [
     "-- Select Common Item --", "GOLD LOCKET", "SILVER LOCKET", "GOLD NATHIYA",
-    "SILVER BABY BALA", "SILVER BABY PAYAL", "SILVER KI RING", "SILVER BICHHIYA",
-    "GOLD CHAIN", "GOLD RING", "GOLD EARRING / JHUMKA", "GOLD NECKLACE",
-    "GOLD BRACELET", "GOLD BANGLE / BALA", "GOLD NOSE PIN", "GOLD PENDANT",
-    "GOLD COIN", "SILVER PAYAL / PAJEB", "SILVER CHAIN", "SILVER BRACELET",
-    "SILVER COIN", "SILVER UTENSIL / BARTAN", "SILVER MURTI / IDOL", "➕ Custom / Other Item"
+    "SILVER BABY BALA", "SILVER BABY PAYAL", "SILVER RING", "SILVER BICHHIYA",
+    "GOLD CHAIN", "GOLD RING", "GOLD TOPS / EARING", "GOLD NOSE PIN", "GOLD PENDANT",
+    "SILVER PAYAL", "SILVER CHAIN", "SILVER BRACELET",
+    "SILVER COIN", "SILVER MURTI / IDOL", "➕ Custom / Other Item"
 ]
 
 def get_current_fy_string():
@@ -162,7 +161,7 @@ def generate_a5_pdf(doc_type, meta_info, items, pdf_path):
         leftMargin=6 * mm,
         rightMargin=6 * mm,
         topMargin=1.25 * inch,
-        bottomMargin=3.5 * mm
+        bottomMargin=4 * mm
     )
     story = []
     styles = getSampleStyleSheet()
