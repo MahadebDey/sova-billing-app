@@ -35,6 +35,7 @@ GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwyLXOi4yCglsCueHm_
 PDF_DIR = "Invoices_PDF"
 os.makedirs(PDF_DIR, exist_ok=True)
 RATES_FILE = "daily_rates.json"
+GST_FILING_FILE = "GSTR1_Filing_Report.xlsx"
 
 def load_saved_rates():
     defs = {"gold_22k": 72000.0, "gold_18k": 59000.0, "silver": 880.0}
@@ -81,6 +82,8 @@ if "items_list" not in st.session_state:
     st.session_state.items_list = []
 if "form_reset_count" not in st.session_state:
     st.session_state.form_reset_count = 0
+if "last_looked_up_mob" not in st.session_state:
+    st.session_state.last_looked_up_mob = ""
 
 COMMON_ITEMS = [
     "-- Select Common Item --", "GOLD LOCKET", "SILVER LOCKET", "GOLD NATHIYA",
@@ -89,6 +92,49 @@ COMMON_ITEMS = [
     "SILVER PAYAL", "SILVER CHAIN", "SILVER BRACELET",
     "SILVER COIN", "SILVER MURTI / IDOL", "➕ Custom / Other Item"
 ]
+
+def lookup_customer_by_mobile(mob_str):
+    clean_mob = re.sub(r'\D', '', str(mob_str))
+    if len(clean_mob) < 10:
+        return None
+    for db_file in ["Sales_Database.xlsx", "Estimate_Database.xlsx"]:
+        if os.path.exists(db_file):
+            try:
+                df = pd.read_excel(db_file)
+                if not df.empty and "Mobile No" in df.columns:
+                    df["clean_m"] = df["Mobile No"].astype(str).str.replace(r'\D', '', regex=True)
+                    matched = df[df["clean_m"].str.endswith(clean_mob[-10:])]
+                    if not matched.empty:
+                        last_rec = matched.iloc[-1]
+                        raw_name = str(last_rec.get("Customer Name", ""))
+                        raw_addr = str(last_rec.get("Address", "MANGO, JAMSHEDPUR"))
+                        
+                        pan_val = ""
+                        pan_match = re.search(r'\(PAN:\s*([A-Z0-9]+)\)', raw_name)
+                        if pan_match:
+                            pan_val = pan_match.group(1)
+                            raw_name = re.sub(r'\s*\(PAN:\s*[A-Z0-9]+\)', '', raw_name).strip()
+
+                        aadhaar_val = ""
+                        aadh_match = re.search(r'\(Aadhaar:\s*([0-9X\s-]+)\)', raw_addr, re.IGNORECASE)
+                        if aadh_match:
+                            aadhaar_val = aadh_match.group(1).strip()
+                            raw_addr = re.sub(r'\s*\(Aadhaar:\s*[0-9X\s-]+\)', '', raw_addr, flags=re.IGNORECASE).strip()
+
+                        gst_val = str(last_rec.get("Party GSTIN", ""))
+                        if gst_val in ["NA", "nan", "None"]:
+                            gst_val = ""
+
+                        return {
+                            "name": raw_name.upper(),
+                            "address": raw_addr.upper(),
+                            "pan": pan_val.upper(),
+                            "aadhaar": aadhaar_val,
+                            "gstin": gst_val.upper()
+                        }
+            except Exception:
+                pass
+    return None
 
 def get_current_fy_string():
     now = datetime.now()
@@ -130,7 +176,7 @@ def get_next_number(doc_type):
 
     return f"{prefix}-{fy}/{str(max_val + 1).zfill(3)}"
 
-def save_to_database(row_dict, doc_type):
+def save_to_database(row_dict, doc_type, gstr1_row=None):
     db = "Sales_Database.xlsx" if doc_type == "Tax Invoice (GST)" else "Estimate_Database.xlsx"
     try:
         if os.path.exists(db):
@@ -141,6 +187,17 @@ def save_to_database(row_dict, doc_type):
         df.to_excel(db, index=False)
     except Exception:
         pass
+
+    if doc_type == "Tax Invoice (GST)" and gstr1_row:
+        try:
+            if os.path.exists(GST_FILING_FILE):
+                gdf = pd.read_excel(GST_FILING_FILE)
+                gdf = pd.concat([gdf, pd.DataFrame([gstr1_row])], ignore_index=True)
+            else:
+                gdf = pd.DataFrame([gstr1_row])
+            gdf.to_excel(GST_FILING_FILE, index=False)
+        except Exception:
+            pass
 
 def sync_to_google_sheet(payload):
     try:
@@ -401,7 +458,11 @@ with st.expander("📈 **Today's Market Rates (Aaj ka Gold & Silver Bhav)**", ex
         st.success("✅ Rates save ho gaye!")
         st.rerun()
 
-tab_billing, tab_search = st.tabs(["📝 New Bill / Estimate", "🔍 Search Customer / History"])
+tab_billing, tab_gst_report, tab_search = st.tabs([
+    "📝 New Bill / Estimate",
+    "📊 GST Filing (GSTR-1 Ready)",
+    "🔍 Search Customer / History"
+])
 
 with tab_billing:
     mode = st.radio(
@@ -429,6 +490,7 @@ with tab_billing:
             st.session_state.c_aadhaar = ""
             st.session_state.c_pan = ""
             st.session_state.c_gstin = ""
+            st.session_state.last_looked_up_mob = ""
             st.session_state.items_list = []
             st.session_state.form_reset_count += 1
             st.session_state.active_doc_number = get_next_number(mode)
@@ -438,6 +500,31 @@ with tab_billing:
     mode_tag = "gst" if mode == "Tax Invoice (GST)" else "est"
 
     col1, col2 = st.columns([1.5, 1.5])
+    with col2:
+        doc_date = st.date_input("Date", value=datetime.today(), key=f"cdate_{r_key}")
+        cust_mob = st.text_input("Mobile No", value=st.session_state.c_mob, key=f"cmob_{r_key}", placeholder="10 Digit Number")
+
+        clean_entered_mob = re.sub(r'\D', '', str(cust_mob))
+        if len(clean_entered_mob) >= 10 and clean_entered_mob != st.session_state.last_looked_up_mob:
+            st.session_state.last_looked_up_mob = clean_entered_mob
+            st.session_state.c_mob = clean_entered_mob
+            found_cust = lookup_customer_by_mobile(clean_entered_mob)
+            if found_cust:
+                st.session_state.c_name = found_cust["name"]
+                st.session_state.c_addr = found_cust["address"]
+                st.session_state.c_pan = found_cust["pan"]
+                st.session_state.c_aadhaar = found_cust["aadhaar"]
+                st.session_state.c_gstin = found_cust["gstin"]
+                st.session_state.form_reset_count += 1
+                st.toast(f"⚡ Purana Record Mil Gaya: {found_cust['name']}")
+                st.rerun()
+
+        payment_mode_selected = st.selectbox("Payment Mode", ["UPI / QR (PhonePe/GPay)", "Cash", "Bank Transfer / Card", "Multiple Modes"], key=f"pmode_{r_key}")
+        if mode == "Tax Invoice (GST)":
+            cust_gstin_in = st.text_input("Party GSTIN (Optional)", value=st.session_state.c_gstin, key=f"cgst_{r_key}", placeholder="OPTIONAL")
+        else:
+            cust_gstin_in = ""
+
     with col1:
         nc1, nc2 = st.columns([3, 1])
         with nc1:
@@ -457,14 +544,6 @@ with tab_billing:
         cust_pan_in = st.text_input("Customer PAN (Name ke sath print hoga)", value=st.session_state.c_pan, key=f"cpan_{r_key}", placeholder="e.g. ABCDE1234F")
         cust_address_in = st.text_input("Address", value=st.session_state.c_addr, key=f"caddr_{r_key}")
         cust_aadhaar_in = st.text_input("Aadhaar No (Address ke sath print hoga)", value=st.session_state.c_aadhaar, key=f"caadhaar_{r_key}", placeholder="e.g. 12 Digit Aadhaar")
-    with col2:
-        doc_date = st.date_input("Date", value=datetime.today(), key=f"cdate_{r_key}")
-        cust_mob = st.text_input("Mobile No", value=st.session_state.c_mob, key=f"cmob_{r_key}", placeholder="10 Digit Number")
-        payment_mode_selected = st.selectbox("Payment Mode", ["UPI / QR (PhonePe/GPay)", "Cash", "Bank Transfer / Card", "Multiple Modes"], key=f"pmode_{r_key}")
-        if mode == "Tax Invoice (GST)":
-            cust_gstin_in = st.text_input("Party GSTIN (Optional)", value=st.session_state.c_gstin, key=f"cgst_{r_key}", placeholder="OPTIONAL")
-        else:
-            cust_gstin_in = ""
 
     cust_name = cust_name_in.strip().upper()
     cust_pan = cust_pan_in.strip().upper()
@@ -645,6 +724,7 @@ with tab_billing:
                 st.error("Customer Name zaroori hai!")
             else:
                 formatted_date = doc_date.strftime("%d %b %Y")
+                gstr_date = doc_date.strftime("%d-%m-%Y")
                 safe_file_prefix = str(doc_number).replace('/', '_')
                 pdf_filename = f"{safe_file_prefix}.pdf"
                 pdf_filepath = os.path.join(PDF_DIR, pdf_filename)
@@ -679,6 +759,31 @@ with tab_billing:
                 with open(pdf_filepath, "rb") as f:
                     pdf_base64 = base64.b64encode(f.read()).decode('utf-8')
 
+                total_net_wt = sum(i["net_wt"] for i in st.session_state.items_list)
+                items_summary_str = ", ".join([f"{it['desc']} (HUID:{it.get('huid','NA')}, {it['net_wt']}g)" for it in st.session_state.items_list])
+
+                gstr1_data = None
+                if mode == "Tax Invoice (GST)":
+                    invoice_category = "B2B (Registered)" if cust_gstin else ("B2CL (>2.5L)" if gross_total > 250000 else "B2CS (Retail)")
+                    gstr1_data = {
+                        "Month-Year": doc_date.strftime("%b-%Y"),
+                        "Invoice Date": gstr_date,
+                        "Invoice No": doc_number,
+                        "Invoice Category": invoice_category,
+                        "Party Name": cust_name,
+                        "Party GSTIN": cust_gstin if cust_gstin else "UNREGISTERED",
+                        "Party PAN": cust_pan if cust_pan else "NA",
+                        "Place of Supply": "20-JHARKHAND",
+                        "HSN Code": "7113",
+                        "Total Net Wt (g)": round(total_net_wt, 3),
+                        "Taxable Value (₹)": round(subtotal, 2),
+                        "GST Rate (%)": 3.0,
+                        "CGST (1.5%) (₹)": round(cgst, 2),
+                        "SGST (1.5%) (₹)": round(sgst, 2),
+                        "Total Invoice Value (₹)": round(gross_total, 2),
+                        "Payment Mode": payment_mode_selected
+                    }
+
                 payload = {
                     "doc_no": doc_number,
                     "date": formatted_date,
@@ -696,7 +801,6 @@ with tab_billing:
                     "pdf_base64": pdf_base64
                 }
 
-                items_summary_str = ", ".join([f"{it['desc']} (HUID:{it.get('huid','NA')}, {it['net_wt']}g)" for it in st.session_state.items_list])
                 db_row = {
                     "Document No": doc_number,
                     "Date": formatted_date,
@@ -713,7 +817,7 @@ with tab_billing:
                     "SGST": sgst,
                     "CGST": cgst
                 }
-                save_to_database(db_row, mode)
+                save_to_database(db_row, mode, gstr1_row=gstr1_data)
 
                 with st.spinner("☁️ Google Sheet & Drive par upload ho raha hai..."):
                     sync_ok, drive_pdf_url, error_msg = sync_to_google_sheet(payload)
@@ -740,9 +844,52 @@ with tab_billing:
                 st.session_state.c_aadhaar = ""
                 st.session_state.c_pan = ""
                 st.session_state.c_gstin = ""
+                st.session_state.last_looked_up_mob = ""
                 st.session_state.items_list = []
                 st.session_state.form_reset_count += 1
                 st.session_state.active_doc_number = get_next_number(mode)
+
+with tab_gst_report:
+    st.subheader("📊 GSTR-1 Ready Report (CA & GST Portal Filing)")
+    st.write("Yahan sirf **Tax Invoice (GST)** ka clean data HSN `7113`, Taxable Value, CGST (1.5%), SGST (1.5%) aur B2B/B2C breakup ke sath taiyar rehta hai:")
+
+    if os.path.exists(GST_FILING_FILE):
+        try:
+            gdf = pd.read_excel(GST_FILING_FILE)
+            if not gdf.empty:
+                months_avail = ["All Months"] + sorted(gdf["Month-Year"].dropna().unique().tolist(), reverse=True)
+                sel_month = st.selectbox("📅 Select Filing Month (Mahina chunein)", months_avail)
+
+                if sel_month != "All Months":
+                    filtered_gst = gdf[gdf["Month-Year"] == sel_month]
+                else:
+                    filtered_gst = gdf
+
+                m1, m2, m3, m4 = st.columns(4)
+                m1.metric("Total GST Bills", len(filtered_gst))
+                m2.metric("Total Taxable Value", f"₹{filtered_gst['Taxable Value (₹)'].sum():,.2f}")
+                m3.metric("Total CGST (1.5%)", f"₹{filtered_gst['CGST (1.5%) (₹)'].sum():,.2f}")
+                m4.metric("Total SGST (1.5%)", f"₹{filtered_gst['SGST (1.5%) (₹)'].sum():,.2f}")
+
+                st.dataframe(filtered_gst, use_container_width=True)
+
+                export_path = f"GSTR1_Return_{sel_month.replace(' ', '_')}.xlsx"
+                filtered_gst.to_excel(export_path, index=False)
+                with open(export_path, "rb") as ef:
+                    st.download_button(
+                        label=f"📥 Download GSTR-1 Filing Excel ({sel_month})",
+                        data=ef,
+                        file_name=export_path,
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        type="primary",
+                        use_container_width=True
+                    )
+            else:
+                st.info("Abhi tak koi GST Tax Invoice generate nahi hua hai.")
+        except Exception as e:
+            st.error(f"GST file load karne mein error: {e}")
+    else:
+        st.info("Jaise hi aap pehla **Tax Invoice (GST)** banayenge, aapki GSTR-1 filing sheet yahan apne aap ban jayegi.")
 
 with tab_search:
     st.subheader("🔍 Customer Bill & History Search")
@@ -795,10 +942,18 @@ with tab_search:
                         with r_col3:
                             st.markdown(f"💰 **₹{row.get('Net Payable', 0)}**")
                             if st.button("⚡ Auto-Fill in New Bill", key=f"btn_s_fill_{idx}_{safe_p_name}"):
-                                st.session_state.c_name = c_name_val.upper()
+                                found_via_btn = lookup_customer_by_mobile(c_mob_val)
+                                if found_via_btn:
+                                    st.session_state.c_name = found_via_btn["name"]
+                                    st.session_state.c_addr = found_via_btn["address"]
+                                    st.session_state.c_pan = found_via_btn["pan"]
+                                    st.session_state.c_aadhaar = found_via_btn["aadhaar"]
+                                    st.session_state.c_gstin = found_via_btn["gstin"]
+                                else:
+                                    st.session_state.c_name = c_name_val.upper()
+                                    st.session_state.c_addr = c_addr_val.upper()
+                                    st.session_state.c_gstin = c_gst_val.upper()
                                 st.session_state.c_mob = "" if c_mob_val == "NA" else c_mob_val
-                                st.session_state.c_addr = c_addr_val.upper()
-                                st.session_state.c_gstin = c_gst_val.upper()
                                 st.session_state.form_reset_count += 1
                                 st.success(f"✅ {c_name_val} ki details load ho gayi hain! Upar 'New Bill / Estimate' tab par click karein.")
                         with r_col4:
@@ -835,10 +990,18 @@ with tab_search:
                     st.markdown(f"📞 {c_mob_val} | 💰 ₹{row.get('Net Payable', 0)}")
                 with rc3:
                     if st.button("⚡ Use Details", key=f"btn_r_fill_{idx}_{safe_r_name}"):
-                        st.session_state.c_name = c_name_val.upper()
+                        found_via_btn = lookup_customer_by_mobile(c_mob_val)
+                        if found_via_btn:
+                            st.session_state.c_name = found_via_btn["name"]
+                            st.session_state.c_addr = found_via_btn["address"]
+                            st.session_state.c_pan = found_via_btn["pan"]
+                            st.session_state.c_aadhaar = found_via_btn["aadhaar"]
+                            st.session_state.c_gstin = found_via_btn["gstin"]
+                        else:
+                            st.session_state.c_name = c_name_val.upper()
+                            st.session_state.c_addr = c_addr_val.upper()
+                            st.session_state.c_gstin = c_gst_val.upper()
                         st.session_state.c_mob = "" if c_mob_val == "NA" else c_mob_val
-                        st.session_state.c_addr = c_addr_val.upper()
-                        st.session_state.c_gstin = c_gst_val.upper()
                         st.session_state.form_reset_count += 1
                         st.success(f"✅ {c_name_val} ki details load ho gayi hain! Upar 'New Bill / Estimate' tab par click karein.")
                 st.divider()
