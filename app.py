@@ -15,7 +15,11 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import mm, inch
 
 # Page Configuration
-st.set_page_config(page_title="SOVAA JEWELLERS - Billing & Sync", layout="wide", page_icon="💎")
+st.set_page_config(
+    page_title="SOVAA JEWELLERS - Billing & Sync",
+    layout="wide",
+    page_icon="💎"
+)
 
 st.markdown("""
 <style>
@@ -29,7 +33,10 @@ input[type="text"] {
 HALLMARK_REG_NO = "HM/C-5800000504"
 FIRM_GSTIN = "20AUJPD1127G1ZE"
 FIRM_PHONE = "7717740697"
-GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwyLXOi4yCglsCueHm_nVQ9wYjPUI0eKsPlxYxYGqFnwIvcML66W5JWfRCwtqj8WuhU/exec"
+GOOGLE_SCRIPT_URL = (
+    "https://script.google.com/macros/s/"
+    "AKfycbwyLXOi4yCglsCueHm_nVQ9wYjPUI0eKsPlxYxYGqFnwIvcML66W5JWfRCwtqj8WuhU/exec"
+)
 
 # Setup Directory & Rates Storage
 PDF_DIR = "Invoices_PDF"
@@ -54,8 +61,13 @@ def load_saved_rates():
 
 def save_rates_to_file(g22, g18, sil):
     try:
+        data_dict = {
+            "gold_22k": float(g22),
+            "gold_18k": float(g18),
+            "silver": float(sil)
+        }
         with open(RATES_FILE, "w") as f:
-            json.dump({"gold_22k": float(g22), "gold_18k": float(g18), "silver": float(sil)}, f)
+            json.dump(data_dict, f)
     except Exception:
         pass
 
@@ -129,7 +141,9 @@ def lookup_customer_by_mobile(mob_str):
                         aadh_match = re.search(r'\(Aadhaar:\s*([0-9X\s-]+)\)', raw_addr, re.IGNORECASE)
                         if aadh_match:
                             aadhaar_val = aadh_match.group(1).strip()
-                            raw_addr = re.sub(r'\s*\(Aadhaar:\s*[0-9X\s-]+\)', '', raw_addr, flags=re.IGNORECASE).strip()
+                            raw_addr = re.sub(
+                                r'\s*\(Aadhaar:\s*[0-9X\s-]+\)', '', raw_addr, flags=re.IGNORECASE
+                            ).strip()
 
                         gst_val = str(last_rec.get("Party GSTIN", ""))
                         if gst_val in ["NA", "nan", "None"]:
@@ -164,7 +178,8 @@ def get_next_number(doc_type):
         if res.status_code == 200:
             c_data = res.json()
             if c_data.get("status") == "success":
-                c_num = c_data.get("last_gst" if doc_type == "Tax Invoice (GST)" else "last_est", 0)
+                key_name = "last_gst" if doc_type == "Tax Invoice (GST)" else "last_est"
+                c_num = c_data.get(key_name, 0)
                 if c_num and int(c_num) > max_val:
                     max_val = int(c_num)
     except Exception:
@@ -191,10 +206,152 @@ def save_to_database(row_dict, doc_type, gstr1_row=None):
     try:
         if os.path.exists(db):
             df = pd.read_excel(db)
-            df = df[df["Document No"].astype(str).str.strip() != str(row_dict["Document No"]).strip()]
+            doc_target = str(row_dict["Document No"]).strip()
+            df = df[df["Document No"].astype(str).str.strip() != doc_target]
             df = pd.concat([df, pd.DataFrame([row_dict])], ignore_index=True)
         else:
             df = pd.DataFrame([row_dict])
         
         df["_sort_dt"] = pd.to_datetime(df["Date"], format="%d %b %Y", errors="coerce")
-        df = df.sort_values(by=["_sort_
+        df = df.sort_values(
+            by=["_sort_dt", "Document No"],
+            na_position="last"
+        )
+        df = df.drop(columns=["_sort_dt"])
+        df.to_excel(db, index=False)
+    except Exception:
+        pass
+
+    if doc_type == "Tax Invoice (GST)" and gstr1_row:
+        try:
+            if os.path.exists(GST_FILING_FILE):
+                gdf = pd.read_excel(GST_FILING_FILE)
+                inv_target = str(gstr1_row["Invoice No"]).strip()
+                gdf = gdf[gdf["Invoice No"].astype(str).str.strip() != inv_target]
+                gdf = pd.concat([gdf, pd.DataFrame([gstr1_row])], ignore_index=True)
+            else:
+                gdf = pd.DataFrame([gstr1_row])
+            
+            gdf["_sort_dt"] = pd.to_datetime(gdf["Invoice Date"], format="%d-%m-%Y", errors="coerce")
+            gdf = gdf.sort_values(
+                by=["_sort_dt", "Invoice No"],
+                na_position="last"
+            )
+            gdf = gdf.drop(columns=["_sort_dt"])
+            gdf.to_excel(GST_FILING_FILE, index=False)
+        except Exception:
+            pass
+
+def delete_bill_record(doc_no_to_delete):
+    doc_clean = str(doc_no_to_delete).strip()
+    deleted_any = False
+
+    for db in ["Sales_Database.xlsx", "Estimate_Database.xlsx"]:
+        if os.path.exists(db):
+            try:
+                df = pd.read_excel(db)
+                if not df.empty and "Document No" in df.columns:
+                    new_df = df[df["Document No"].astype(str).str.strip() != doc_clean]
+                    if len(new_df) < len(df):
+                        new_df.to_excel(db, index=False)
+                        deleted_any = True
+            except Exception:
+                pass
+
+    if os.path.exists(GST_FILING_FILE):
+        try:
+            gdf = pd.read_excel(GST_FILING_FILE)
+            if not gdf.empty and "Invoice No" in gdf.columns:
+                new_gdf = gdf[gdf["Invoice No"].astype(str).str.strip() != doc_clean]
+                if len(new_gdf) < len(gdf):
+                    new_gdf.to_excel(GST_FILING_FILE, index=False)
+                    deleted_any = True
+        except Exception:
+            pass
+
+    safe_p_name = doc_clean.replace('/', '_')
+    p_file = os.path.join(PDF_DIR, f"{safe_p_name}.pdf")
+    if os.path.exists(p_file):
+        try:
+            os.remove(p_file)
+            deleted_any = True
+        except Exception:
+            pass
+
+    try:
+        requests.post(
+            GOOGLE_SCRIPT_URL,
+            json={"action": "delete", "doc_no": doc_clean},
+            timeout=5
+        )
+    except Exception:
+        pass
+
+    return deleted_any
+
+def sync_to_google_sheet(payload):
+    try:
+        res = requests.post(
+            GOOGLE_SCRIPT_URL,
+            json=payload,
+            headers={"Content-Type": "application/json"},
+            timeout=12
+        )
+        if res.status_code == 200:
+            d = res.json()
+            if d.get("status") == "success":
+                return True, d.get("pdf_url"), "Success"
+            return False, None, d.get("message", "Script Error")
+        return False, None, f"HTTP Error: {res.status_code}"
+    except Exception as e:
+        return False, None, str(e)
+
+def generate_a5_pdf(doc_type, meta_info, items, pdf_path):
+    doc = SimpleDocTemplate(
+        pdf_path,
+        pagesize=A5,
+        leftMargin=6 * mm,
+        rightMargin=6 * mm,
+        topMargin=1.25 * inch,
+        bottomMargin=4 * mm
+    )
+    story = []
+    styles = getSampleStyleSheet()
+
+    num_items = len(items)
+    if num_items <= 2:
+        item_font = 6.6
+        item_leading = 8.0
+        item_pad = 2.2
+        dynamic_bottom_gap = max(10 * mm, (4 - num_items) * 11.0 * mm)
+        terms_font = 5.2
+        terms_leading = 6.4
+    elif num_items <= 4:
+        item_font = 5.8
+        item_leading = 7.0
+        item_pad = 1.4
+        dynamic_bottom_gap = max(4 * mm, (5 - num_items) * 6.0 * mm)
+        terms_font = 4.8
+        terms_leading = 6.0
+    else:
+        item_font = 5.0
+        item_leading = 6.2
+        item_pad = 0.8
+        dynamic_bottom_gap = 2 * mm
+        terms_font = 4.4
+        terms_leading = 5.5
+
+    title_style = ParagraphStyle(
+        'DocTitle', parent=styles['Normal'], fontName='Helvetica-Bold',
+        fontSize=10, leading=12, alignment=1
+    )
+    cell_meta = ParagraphStyle(
+        'CellMeta', parent=styles['Normal'], fontName='Helvetica',
+        fontSize=6.2, leading=7.5
+    )
+    cell_style = ParagraphStyle(
+        'CellText', parent=styles['Normal'], fontName='Helvetica',
+        fontSize=item_font, leading=item_leading
+    )
+    cell_header = ParagraphStyle(
+        'CellHeader', parent=
