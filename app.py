@@ -216,4 +216,4 @@ def generate_a5_pdf(doc_type, meta_info, items, pdf_path):
         item_font, item_leading, item_pad, dynamic_bottom_gap, terms_font, terms_leading = 5.0, 6.2, 0.8, 2*mm, 4.4, 5.5
 
     title_style = ParagraphStyle('DocTitle', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=10, leading=12, alignment=1)
-    cell_meta = ParagraphStyle('CellMeta', parent=styles['Normal'], fontName='Helvetica', fontSize=6.2, leading=7.5) 
+    cell_meta = ParagraphStyle('CellMeta', parent=styles['Normal'], fontName='Helvetica', fontSize=6.2, leading=7.5 ) 
