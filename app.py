@@ -90,6 +90,8 @@ if "lock_bill_date" not in st.session_state:
     st.session_state.lock_bill_date = False
 if "locked_date_val" not in st.session_state:
     st.session_state.locked_date_val = datetime.today().date()
+if "selected_purity_val" not in st.session_state:
+    st.session_state.selected_purity_val = "22K (916)"
 
 COMMON_ITEMS = [
     "-- Select Common Item --", "GOLD LOCKET", "SILVER LOCKET", "GOLD NATHIYA",
@@ -98,6 +100,16 @@ COMMON_ITEMS = [
     "SILVER PAYAL", "SILVER CHAIN", "SILVER BRACELET",
     "SILVER COIN", "SILVER MURTI / IDOL", "➕ Custom / Other Item"
 ]
+
+def on_preset_change():
+    chosen = st.session_state.get("preset_box", "")
+    if "SILVER" in chosen:
+        st.session_state.selected_purity_val = "SILVER"
+    elif "GOLD" in chosen:
+        st.session_state.selected_purity_val = "22K (916)"
+
+def on_purity_manual_change():
+    st.session_state.selected_purity_val = st.session_state.get("purity_box", "22K (916)")
 
 def lookup_customer_by_mobile(mob_str):
     clean_mob = re.sub(r'\D', '', str(mob_str))
@@ -627,19 +639,26 @@ with tab_billing:
     st.markdown("---")
     st.subheader("🛒 Item Details")
 
-    selected_preset = st.selectbox("⚡ Quick Select Item (Optional)", COMMON_ITEMS)
+    selected_preset = st.selectbox(
+        "⚡ Quick Select Item (Optional)",
+        COMMON_ITEMS,
+        key="preset_box",
+        on_change=on_preset_change
+    )
 
     purity_options = ["22K (916)", "18K (750)", "SILVER", "24K (999)"]
-    default_purity_idx = 0
-
-    if "SILVER" in selected_preset:
-        default_purity_idx = 2
-    elif "GOLD" in selected_preset:
-        default_purity_idx = 0
+    cur_pur_val = st.session_state.selected_purity_val
+    default_purity_idx = purity_options.index(cur_pur_val) if cur_pur_val in purity_options else 0
 
     p_col1, p_col2 = st.columns([1.5, 2.5])
     with p_col1:
-        purity_choice = st.selectbox("Purity", purity_options, index=default_purity_idx, key="purity_selector")
+        purity_choice = st.selectbox(
+            "Purity",
+            purity_options,
+            index=default_purity_idx,
+            key="purity_box",
+            on_change=on_purity_manual_change
+        )
     with p_col2:
         st.write("")
         st.caption(f"🛡️ Hallmarking: {purity_choice} under {HALLMARK_REG_NO}")
