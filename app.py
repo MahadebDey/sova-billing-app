@@ -84,6 +84,12 @@ if "form_reset_count" not in st.session_state:
     st.session_state.form_reset_count = 0
 if "last_looked_up_mob" not in st.session_state:
     st.session_state.last_looked_up_mob = ""
+if "editing_item_idx" not in st.session_state:
+    st.session_state.editing_item_idx = None
+if "lock_bill_date" not in st.session_state:
+    st.session_state.lock_bill_date = False
+if "locked_date_val" not in st.session_state:
+    st.session_state.locked_date_val = datetime.today().date()
 
 COMMON_ITEMS = [
     "-- Select Common Item --", "GOLD LOCKET", "SILVER LOCKET", "GOLD NATHIYA",
@@ -181,9 +187,13 @@ def save_to_database(row_dict, doc_type, gstr1_row=None):
     try:
         if os.path.exists(db):
             df = pd.read_excel(db)
+            df = df[df["Document No"].astype(str).str.strip() != str(row_dict["Document No"]).strip()]
             df = pd.concat([df, pd.DataFrame([row_dict])], ignore_index=True)
         else:
             df = pd.DataFrame([row_dict])
+        
+        df["_sort_dt"] = pd.to_datetime(df["Date"], format="%d %b %Y", errors="coerce")
+        df = df.sort_values(by=["_sort_dt", "Document No"], na_position="last").drop(columns=["_sort_dt"])
         df.to_excel(db, index=False)
     except Exception:
         pass
@@ -192,12 +202,59 @@ def save_to_database(row_dict, doc_type, gstr1_row=None):
         try:
             if os.path.exists(GST_FILING_FILE):
                 gdf = pd.read_excel(GST_FILING_FILE)
+                gdf = gdf[gdf["Invoice No"].astype(str).str.strip() != str(gstr1_row["Invoice No"]).strip()]
                 gdf = pd.concat([gdf, pd.DataFrame([gstr1_row])], ignore_index=True)
             else:
                 gdf = pd.DataFrame([gstr1_row])
+            
+            gdf["_sort_dt"] = pd.to_datetime(gdf["Invoice Date"], format="%d-%m-%Y", errors="coerce")
+            gdf = gdf.sort_values(by=["_sort_dt", "Invoice No"], na_position="last").drop(columns=["_sort_dt"])
             gdf.to_excel(GST_FILING_FILE, index=False)
         except Exception:
             pass
+
+def delete_bill_record(doc_no_to_delete):
+    doc_clean = str(doc_no_to_delete).strip()
+    deleted_any = False
+
+    for db in ["Sales_Database.xlsx", "Estimate_Database.xlsx"]:
+        if os.path.exists(db):
+            try:
+                df = pd.read_excel(db)
+                if not df.empty and "Document No" in df.columns:
+                    new_df = df[df["Document No"].astype(str).str.strip() != doc_clean]
+                    if len(new_df) < len(df):
+                        new_df.to_excel(db, index=False)
+                        deleted_any = True
+            except Exception:
+                pass
+
+    if os.path.exists(GST_FILING_FILE):
+        try:
+            gdf = pd.read_excel(GST_FILING_FILE)
+            if not gdf.empty and "Invoice No" in gdf.columns:
+                new_gdf = gdf[gdf["Invoice No"].astype(str).str.strip() != doc_clean]
+                if len(new_gdf) < len(gdf):
+                    new_gdf.to_excel(GST_FILING_FILE, index=False)
+                    deleted_any = True
+        except Exception:
+            pass
+
+    safe_p_name = doc_clean.replace('/', '_')
+    p_file = os.path.join(PDF_DIR, f"{safe_p_name}.pdf")
+    if os.path.exists(p_file):
+        try:
+            os.remove(p_file)
+            deleted_any = True
+        except Exception:
+            pass
+
+    try:
+        requests.post(GOOGLE_SCRIPT_URL, json={"action": "delete", "doc_no": doc_clean}, timeout=5)
+    except Exception:
+        pass
+
+    return deleted_any
 
 def sync_to_google_sheet(payload):
     try:
@@ -492,6 +549,7 @@ with tab_billing:
             st.session_state.c_gstin = ""
             st.session_state.last_looked_up_mob = ""
             st.session_state.items_list = []
+            st.session_state.editing_item_idx = None
             st.session_state.form_reset_count += 1
             st.session_state.active_doc_number = get_next_number(mode)
             st.rerun()
@@ -501,7 +559,22 @@ with tab_billing:
 
     col1, col2 = st.columns([1.5, 1.5])
     with col2:
-        doc_date = st.date_input("Date", value=datetime.today(), key=f"cdate_{r_key}")
+        # Date Input with Lock Option for Back-Date Entries
+        d_col1, d_col2 = st.columns([2, 1.3])
+        with d_col1:
+            default_dt = st.session_state.locked_date_val if st.session_state.lock_bill_date else datetime.today().date()
+            doc_date = st.date_input("Date", value=default_dt, key=f"cdate_{r_key}")
+            if st.session_state.lock_bill_date:
+                st.session_state.locked_date_val = doc_date
+        with d_col2:
+            st.write("")
+            st.write("")
+            is_locked = st.checkbox("🔒 Lock Date", value=st.session_state.lock_bill_date, help="Back-date entries karte samay date ko lock rakhein")
+            if is_locked != st.session_state.lock_bill_date:
+                st.session_state.lock_bill_date = is_locked
+                st.session_state.locked_date_val = doc_date
+                st.rerun()
+
         cust_mob = st.text_input("Mobile No", value=st.session_state.c_mob, key=f"cmob_{r_key}", placeholder="10 Digit Number")
 
         clean_entered_mob = re.sub(r'\D', '', str(cust_mob))
@@ -624,6 +697,8 @@ with tab_billing:
                     "hsn": "7113",
                     "purity": purity_choice,
                     "rate": rate_10g,
+                    "making_val": val,
+                    "making_unit": making_type,
                     "making_display": display_str,
                     "total": round(total_item_amt, 2)
                 })
@@ -640,8 +715,123 @@ with tab_billing:
             display_cols.insert(4, "hsn")
         st.table(df_items[display_cols])
 
+        # --- INDIVIDUAL ITEM EDIT & DELETE SECTION ---
+        with st.expander("✏️ Edit / Delete Any Added Item (किसी आइटम को सुधारें या हटाएँ)", expanded=False):
+            for idx, itm in enumerate(st.session_state.items_list):
+                ec1, ec2, ec3, ec4 = st.columns([3.5, 2.0, 1.0, 1.0])
+                with ec1:
+                    st.markdown(f"**#{idx+1} {itm['desc']}** (HUID: {itm.get('huid','NA')})")
+                with ec2:
+                    st.caption(f"Net: {itm['net_wt']}g | Rate: ₹{itm['rate']:,.0f} | Making: {itm['making_display']} | Total: ₹{itm['total']:,.2f}")
+                with ec3:
+                    if st.button("✏️ Edit", key=f"btn_edit_itm_{idx}"):
+                        st.session_state.editing_item_idx = idx
+                        st.rerun()
+                with ec4:
+                    if st.button("❌ Del", key=f"btn_del_itm_{idx}"):
+                        st.session_state.items_list.pop(idx)
+                        if st.session_state.editing_item_idx == idx:
+                            st.session_state.editing_item_idx = None
+                        st.rerun()
+
+            if st.session_state.editing_item_idx is not None and st.session_state.editing_item_idx < len(st.session_state.items_list):
+                e_idx = st.session_state.editing_item_idx
+                e_itm = st.session_state.items_list[e_idx]
+                st.markdown("---")
+                st.markdown(f"##### 🔧 Editing Item #{e_idx + 1}: {e_itm['desc']}")
+                with st.form(f"edit_item_form_{e_idx}"):
+                    f1, f2, f3, f4 = st.columns([2, 1.2, 1.2, 1.2])
+                    with f1:
+                        new_desc = st.text_input("Description", value=e_itm["desc"])
+                    with f2:
+                        new_huid = st.text_input("HUID", value="" if e_itm.get("huid") == "NA" else e_itm.get("huid", ""))
+                    with f3:
+                        new_gwt = st.number_input("Gross Wt (g)", min_value=0.0, step=0.01, format="%.2f", value=float(e_itm["gross_wt"]))
+                    with f4:
+                        new_nwt = st.number_input("Net Wt (g)", min_value=0.0, step=0.01, format="%.2f", value=float(e_itm["net_wt"]))
+
+                    f5, f6, f7, f8 = st.columns([1.5, 1.5, 1.2, 1.0])
+                    with f5:
+                        p_idx = purity_options.index(e_itm["purity"]) if e_itm["purity"] in purity_options else 0
+                        new_pur = st.selectbox("Purity", purity_options, index=p_idx)
+                    with f6:
+                        new_rate = st.number_input("Rate (Per 10g)", min_value=0.0, step=10.0, format="%.2f", value=float(e_itm["rate"]))
+                    with f7:
+                        cur_mval = float(e_itm.get("making_val", 0.0))
+                        new_mval = st.number_input("Making Charge", min_value=0.0, step=1.0, value=cur_mval)
+                    with f8:
+                        cur_munit = e_itm.get("making_unit", "%" if "%" in str(e_itm["making_display"]) else "₹")
+                        new_munit = st.selectbox("Unit", ["%", "₹"], index=0 if cur_munit == "%" else 1)
+
+                    b_save, b_cancel = st.columns(2)
+                    with b_save:
+                        if st.form_submit_button("💾 Update Item", type="primary", use_container_width=True):
+                            if new_desc and new_nwt > 0 and new_rate > 0:
+                                m_cost = (new_nwt * new_rate) / 10.0
+                                if new_munit == "%":
+                                    m_amt = m_cost * (new_mval / 100.0)
+                                    d_str = f"{new_mval}%"
+                                else:
+                                    m_amt = new_mval
+                                    d_str = f"Rs. {new_mval:,.0f}"
+                                st.session_state.items_list[e_idx] = {
+                                    "desc": new_desc.strip().upper(),
+                                    "huid": new_huid.strip().upper() if new_huid else "NA",
+                                    "gross_wt": new_gwt if new_gwt > 0 else new_nwt,
+                                    "net_wt": new_nwt,
+                                    "hsn": "7113",
+                                    "purity": new_pur,
+                                    "rate": new_rate,
+                                    "making_val": new_mval,
+                                    "making_unit": new_munit,
+                                    "making_display": d_str,
+                                    "total": round(m_cost + m_amt, 2)
+                                }
+                                st.session_state.editing_item_idx = None
+                                st.rerun()
+                    with b_cancel:
+                        if st.form_submit_button("❌ Cancel", use_container_width=True):
+                            st.session_state.editing_item_idx = None
+                            st.rerun()
+
+        # --- REVERSE MAKING CHARGE CALCULATOR ---
+        with st.expander("🧮 Reverse Making Charge Calculator (कस्टमर के फाइनल अमाउंट से मेकिंग निकालें)", expanded=False):
+            st.caption("यदि कस्टमर कुल अमाउंट से कम रुपए दे रहा है, तो यहाँ कस्टमर द्वारा दिया जा रहा फाइनल अमाउंट डालें—मेकिंग चार्ज अपने आप एडजस्ट हो जाएगा:")
+            rc_col1, rc_col2, rc_col3 = st.columns([2, 1.5, 1.5])
+            with rc_col1:
+                item_labels = [f"#{i+1} {x['desc']} ({x['net_wt']}g)" for i, x in enumerate(st.session_state.items_list)]
+                target_item_idx = st.selectbox("Select Item to Adjust", range(len(item_labels)), format_func=lambda i: item_labels[i])
+            with rc_col2:
+                customer_giving_amt = st.number_input("Customer Final Amount (₹)", min_value=0.0, step=100.0, format="%.2f", value=0.0)
+            with rc_col3:
+                st.write("")
+                st.write("")
+                if st.button("⚡ Apply Auto Making", use_container_width=True):
+                    if customer_giving_amt > 0:
+                        other_items_total = sum(x["total"] for i, x in enumerate(st.session_state.items_list) if i != target_item_idx)
+                        if mode == "Tax Invoice (GST)":
+                            target_subtotal = customer_giving_amt / 1.03
+                        else:
+                            target_subtotal = customer_giving_amt
+                        
+                        target_item_total = target_subtotal - other_items_total
+                        t_itm = st.session_state.items_list[target_item_idx]
+                        metal_val = (t_itm["net_wt"] * t_itm["rate"]) / 10.0
+                        calc_making_rs = round(target_item_total - metal_val, 2)
+
+                        if calc_making_rs >= 0:
+                            st.session_state.items_list[target_item_idx]["making_val"] = calc_making_rs
+                            st.session_state.items_list[target_item_idx]["making_unit"] = "₹"
+                            st.session_state.items_list[target_item_idx]["making_display"] = f"Rs. {calc_making_rs:,.0f}"
+                            st.session_state.items_list[target_item_idx]["total"] = round(metal_val + calc_making_rs, 2)
+                            st.success(f"✅ Making Charge ₹{calc_making_rs:,.2f} सेट हो गया!")
+                            st.rerun()
+                        else:
+                            st.error(f"⚠️ कस्टमर का अमाउंट धातु की मूल कीमत (₹{metal_val:,.2f}) से भी कम है!")
+
         if st.button("🗑️ Clear All Items"):
             st.session_state.items_list = []
+            st.session_state.editing_item_idx = None
             st.rerun()
 
         subtotal = sum(i["total"] for i in st.session_state.items_list)
@@ -723,6 +913,9 @@ with tab_billing:
             if not cust_name:
                 st.error("Customer Name zaroori hai!")
             else:
+                if st.session_state.lock_bill_date:
+                    st.session_state.locked_date_val = doc_date
+
                 formatted_date = doc_date.strftime("%d %b %Y")
                 gstr_date = doc_date.strftime("%d-%m-%Y")
                 safe_file_prefix = str(doc_number).replace('/', '_')
@@ -837,7 +1030,7 @@ with tab_billing:
                         use_container_width=True
                     )
 
-                # Reset form for next customer
+                # Reset form for next customer (Date lock status stays preserved)
                 st.session_state.c_name = ""
                 st.session_state.c_mob = ""
                 st.session_state.c_addr = "MANGO, JAMSHEDPUR"
@@ -846,6 +1039,7 @@ with tab_billing:
                 st.session_state.c_gstin = ""
                 st.session_state.last_looked_up_mob = ""
                 st.session_state.items_list = []
+                st.session_state.editing_item_idx = None
                 st.session_state.form_reset_count += 1
                 st.session_state.active_doc_number = get_next_number(mode)
 
@@ -893,7 +1087,7 @@ with tab_gst_report:
 
 with tab_search:
     st.subheader("🔍 Customer Bill & History Search")
-    st.write("Customer ka **Naam** ya **Mobile No** search karein. Naya bill banane ke liye **'⚡ Auto-Fill in New Bill'** par click karein:")
+    st.write("Customer ka **Naam** ya **Mobile No** search karein. Naya bill banane ke liye **'⚡ Auto-Fill in New Bill'** par click karein ya purane bill ko **'🗑️ Delete'** karein:")
 
     records = []
     for f_name in ["Sales_Database.xlsx", "Estimate_Database.xlsx"]:
@@ -932,7 +1126,7 @@ with tab_search:
 
                     card = st.container()
                     with card:
-                        r_col1, r_col2, r_col3, r_col4 = st.columns([2, 2.5, 1.8, 1.2])
+                        r_col1, r_col2, r_col3, r_col4, r_col5 = st.columns([1.8, 2.4, 1.7, 1.0, 1.0])
                         with r_col1:
                             st.markdown(f"**{d_no}** ({row.get('Type', '')})")
                             st.caption(f"📅 {row.get('Date', '')}")
@@ -941,7 +1135,7 @@ with tab_search:
                             st.caption(f"📦 Items: {row.get('Items', 'NA')}")
                         with r_col3:
                             st.markdown(f"💰 **₹{row.get('Net Payable', 0)}**")
-                            if st.button("⚡ Auto-Fill in New Bill", key=f"btn_s_fill_{idx}_{safe_p_name}"):
+                            if st.button("⚡ Auto-Fill", key=f"btn_s_fill_{idx}_{safe_p_name}"):
                                 found_via_btn = lookup_customer_by_mobile(c_mob_val)
                                 if found_via_btn:
                                     st.session_state.c_name = found_via_btn["name"]
@@ -966,6 +1160,11 @@ with tab_search:
                                         mime="application/pdf",
                                         key=f"btn_s_dl_{idx}_{safe_p_name}"
                                     )
+                        with r_col5:
+                            if st.button("🗑️ Del", key=f"btn_s_del_{idx}_{safe_p_name}", help="Bill aur GSTR-1 record delete karein"):
+                                if delete_bill_record(d_no):
+                                    st.success(f"🗑️ {d_no} delete ho gaya!")
+                                    st.rerun()
                         st.divider()
             else:
                 st.warning(f"'{search_query}' ke naam ya number se koi record nahi mila.")
@@ -983,7 +1182,7 @@ with tab_search:
                     c_gst_val = ""
                 safe_r_name = d_no.replace('/', '_')
                 
-                rc1, rc2, rc3 = st.columns([2.5, 2.5, 2])
+                rc1, rc2, rc3, rc4 = st.columns([2.2, 2.3, 1.5, 1.0])
                 with rc1:
                     st.markdown(f"**{d_no}** - {c_name_val}")
                 with rc2:
@@ -1004,6 +1203,11 @@ with tab_search:
                         st.session_state.c_mob = "" if c_mob_val == "NA" else c_mob_val
                         st.session_state.form_reset_count += 1
                         st.success(f"✅ {c_name_val} ki details load ho gayi hain! Upar 'New Bill / Estimate' tab par click karein.")
+                with rc4:
+                    if st.button("🗑️ Del", key=f"btn_r_del_{idx}_{safe_r_name}"):
+                        if delete_bill_record(d_no):
+                            st.success(f"🗑️ {d_no} delete ho gaya!")
+                            st.rerun()
                 st.divider()
     else:
         st.info("Abhi tak koi transaction record nahi hua hai.")
